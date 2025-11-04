@@ -28,6 +28,14 @@ class GeomElement:
     scale: str | None = None
     mesh: str | None = None
 
+# Format each value: 4 decimal places, remove trailing zeros and decimal point
+def format_value(val: float) -> str:
+    formatted = f"{val:.4f}"
+    # Remove trailing zeros
+    formatted = formatted.rstrip('0')
+    # Remove trailing decimal point
+    formatted = formatted.rstrip('.')
+    return formatted
 
 def parse_vector(s: str) -> list[float]:
     """Convert a string of space-separated numbers to a list of floats.
@@ -145,7 +153,7 @@ def compute_min_z(body: ET.Element, parent_transform: list[list[float]] | None =
                 r = float(child.attrib.get("size", "0"))
                 candidate = z - r
             elif geom_type == "mesh":
-                candidate = z
+                candidate = z - 0.2
             else:
                 candidate = z
 
@@ -174,4 +182,5 @@ def rpy_to_quat(rpy_str: str) -> str:
     qx = sr * cp * cy - cr * sp * sy
     qy = cr * sp * cy + sr * cp * sy
     qz = cr * cp * sy - sr * sp * cy
-    return f"{qw} {qx} {qy} {qz}" 
+    
+    return f"{format_value(qw)} {format_value(qx)} {format_value(qy)} {format_value(qz)}" 

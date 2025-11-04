@@ -173,7 +173,6 @@ def update_collisions(
                 box_geom.attrib["pos"] = " ".join(f"{v:.6f}" for v in box_pos)
                 box_geom.attrib["quat"] = " ".join(f"{v:.6f}" for v in box_quat)
                 box_geom.attrib["size"] = " ".join(f"{v:.6f}" for v in box_size)
-                box_geom.attrib["material"] = "collision_material"
 
                 # Copies over any other attributes from the original mesh geom.
                 for key in ("class", "condim", "solref", "solimp", "fluidshape", "fluidcoef", "margin"):
@@ -240,7 +239,6 @@ def update_collisions(
                     capsule_geom.attrib["quat"] = " ".join(f"{v:.6f}" for v in sphere_quat)
                     capsule_geom.attrib["fromto"] = " ".join(f"{v:.6f}" for v in capsule_fromto)
                     capsule_geom.attrib["size"] = f"{rad:.6f} {length / 2:.6f}"
-                    capsule_geom.attrib["material"] = "collision_material"
 
                     # Copy over any other attributes from the original mesh geom
                     for key in ("class", "condim", "solref", "solimp", "fluidshape", "fluidcoef", "margin"):
@@ -296,7 +294,6 @@ def update_collisions(
                     sphere_geom.attrib["quat"] = " ".join(f"{v:.6f}" for v in sphere_quat)
                     sphere_geom.attrib["pos"] = " ".join(f"{v:.6f}" for v in (x, y, z))
                     sphere_geom.attrib["size"] = f"{rad:.6f}"
-                    sphere_geom.attrib["material"] = "collision_material"
 
                     # Copy over any other attributes from the original mesh geom
                     for key in ("class", "condim", "solref", "solimp", "fluidshape", "fluidcoef", "margin"):
@@ -343,7 +340,6 @@ def update_collisions(
                 sphere_geom.attrib["quat"] = " ".join(f"{v:.6f}" for v in sphere_quat)
                 sphere_geom.attrib["pos"] = " ".join(f"{v:.6f}" for v in sphere_pos)
                 sphere_geom.attrib["size"] = f"{rad:.6f}"
-                sphere_geom.attrib["material"] = "collision_material"
 
                 body_elem.append(sphere_geom)
 
