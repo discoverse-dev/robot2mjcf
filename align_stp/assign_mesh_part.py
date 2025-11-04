@@ -162,11 +162,13 @@ def pick_best_part(candidates: List[PartInfo], obj_parts: dict, input_mesh: "tri
         return candidates[0]
     # 采样输入 mesh 点
     verts = input_mesh.vertices
+    normals = input_mesh.vertex_normals
+    bbox_radius = np.linalg.norm(input_mesh.bounds[1] - input_mesh.bounds[0])
     if len(verts) > sample:
         idx = np.random.default_rng(0).choice(len(verts), size=sample, replace=False)
-        pts = verts[idx]
+        pts = verts[idx] - (normals[idx] * bbox_radius * 0.01)
     else:
-        pts = verts
+        pts = verts - (normals * bbox_radius * 0.01)
 
     best = None
     best_score = -1.0
