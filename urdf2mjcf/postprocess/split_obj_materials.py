@@ -252,6 +252,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     # Process each OBJ file
     all_mtl_materials = {}
     mesh_splits = {}  # mesh_name -> [(submesh_name, submesh_file), ...]
+    mesh_single_materials = {}  # mesh_name -> material_name (for single mesh with multiple materials)
     
     for mesh_name, mesh_file in obj_meshes.items():
         obj_file_path = mesh_dir / mesh_file
@@ -281,6 +282,33 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
                 
                 mesh_splits[mesh_name] = submesh_info
                 logger.info(f"Found {len(submesh_info)} split meshes for {mesh_name}")
+        
+        # Handle single mesh with multiple materials case
+        # If obj_materials has content but no split meshes found, read actual material used in OBJ
+        if obj_materials and mesh_name not in mesh_splits:
+            # This is a single mesh with multiple materials that wasn't split
+            # Read the OBJ file to find which material is actually used
+            actual_material = None
+            try:
+                with open(obj_file_path, 'r') as f:
+                    for line in f:
+                        if line.startswith('usemtl '):
+                            mtl_name_raw = line.split()[1].strip()
+                            # Construct the expected material name with obj stem prefix
+                            expected_material_name = f"{obj_file_path.stem}_{mtl_name_raw}"
+                            if expected_material_name in obj_materials:
+                                actual_material = expected_material_name
+                                break
+            except Exception as e:
+                logger.warning(f"Failed to read material from OBJ {obj_file_path}: {e}")
+            
+            # Fallback to first material if we couldn't find the actual one
+            if not actual_material:
+                actual_material = next(iter(obj_materials.keys()))
+                logger.warning(f"Could not determine actual material used in {mesh_name}, using first material: {actual_material}")
+            
+            mesh_single_materials[mesh_name] = actual_material
+            logger.info(f"Single mesh {mesh_name} with multiple materials will use material: {actual_material}")
     
     # Update asset section - add new mesh assets for submeshes
     for mesh_name, submesh_info in mesh_splits.items():
@@ -301,14 +329,23 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         ET.SubElement(asset, "material", attrib=material_attrib)
         logger.info(f"Added MTL material: {material.name}")
     
-    # Update geom elements to use split meshes
+    # Update geom elements to use split meshes or assign materials
     for body in root.findall(".//body"):
         geoms_to_update = []
+        geoms_to_assign_material = []
         for geom in body.findall("geom"):
             if geom.get("class") == "visual" and geom.get("type") == "mesh":
                 mesh_ref = geom.get("mesh")
                 if mesh_ref in mesh_splits:
                     geoms_to_update.append((geom, mesh_ref))
+                elif mesh_ref in mesh_single_materials:
+                    geoms_to_assign_material.append((geom, mesh_ref))
+        
+        # First, assign materials to single meshes that have multiple materials but weren't split
+        for geom, mesh_ref in geoms_to_assign_material:
+            material_name = mesh_single_materials[mesh_ref]
+            geom.attrib["material"] = material_name
+            logger.info(f"Assigned material {material_name} to geom {geom.get('name', 'unnamed')} for mesh {mesh_ref}")
         
         # Replace each geom with multiple geoms for submeshes
         for geom, mesh_ref in geoms_to_update:
