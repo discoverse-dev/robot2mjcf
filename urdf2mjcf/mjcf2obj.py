@@ -2,9 +2,9 @@
 
 Each ``body`` element in the MJCF ``worldbody`` hierarchy is exported as an
 OBJ file whose geometry aggregates all mesh-type ``geom`` descendants defined
-directly under that body. Geoms are transformed into the body's frame, their
-meshes are merged, and the resulting OBJ references an accompanying MTL file
-describing the materials used by those geoms.
+directly under that body. Mesh data is emitted in each geom's local coordinate
+frame, meshes are merged, and the resulting OBJ references an accompanying MTL
+file describing the materials used by those geoms.
 
 Example
 -------
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import math
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -59,100 +58,6 @@ def _parse_floats(
 		raise ValueError(f"Expected {expected} floats, got {len(elems)} from '{value}'")
 
 	return np.asarray(elems, dtype=float)
-
-
-def _quat_to_matrix(quat: np.ndarray) -> np.ndarray:
-	"""Convert quaternion (w, x, y, z) to a 3x3 rotation matrix."""
-
-	if quat.shape[0] != 4:
-		raise ValueError("Quaternion must have 4 components")
-
-	w, x, y, z = quat
-	n = w * w + x * x + y * y + z * z
-	if n == 0.0:
-		return np.eye(3)
-	s = 2.0 / n
-	wx, wy, wz = s * w * x, s * w * y, s * w * z
-	xx, xy, xz = s * x * x, s * x * y, s * x * z
-	yy, yz, zz = s * y * y, s * y * z, s * z * z
-
-	return np.array(
-		[
-			[1.0 - (yy + zz), xy - wz, xz + wy],
-			[xy + wz, 1.0 - (xx + zz), yz - wx],
-			[xz - wy, yz + wx, 1.0 - (xx + yy)],
-		]
-	)
-
-
-def _euler_to_matrix(euler: np.ndarray) -> np.ndarray:
-	"""Convert extrinsic XYZ Euler angles (radians) to rotation matrix."""
-
-	if euler.shape[0] != 3:
-		raise ValueError("Euler angles must have 3 components")
-
-	x, y, z = euler
-	cx, cy, cz = math.cos(x), math.cos(y), math.cos(z)
-	sx, sy, sz = math.sin(x), math.sin(y), math.sin(z)
-
-	# Rz * Ry * Rx (extrinsic XYZ)
-	return np.array(
-		[
-			[cy * cz, -cy * sz, sy],
-			[sx * sy * cz + cx * sz, -sx * sy * sz + cx * cz, -sx * cy],
-			[-cx * sy * cz + sx * sz, cx * sy * sz + sx * cz, cx * cy],
-		]
-	)
-
-
-def _axisangle_to_matrix(axis_angle: np.ndarray) -> np.ndarray:
-	"""Convert axis-angle (axis_x, axis_y, axis_z, angle) to rotation matrix."""
-
-	if axis_angle.shape[0] != 4:
-		raise ValueError("Axis-angle representation must have 4 components")
-
-	axis = axis_angle[:3]
-	angle = axis_angle[3]
-	norm = np.linalg.norm(axis)
-	if norm == 0.0:
-		return np.eye(3)
-	axis = axis / norm
-	x, y, z = axis
-	c = math.cos(angle)
-	s = math.sin(angle)
-	C = 1.0 - c
-
-	return np.array(
-		[
-			[c + x * x * C, x * y * C - z * s, x * z * C + y * s],
-			[y * x * C + z * s, c + y * y * C, y * z * C - x * s],
-			[z * x * C - y * s, z * y * C + x * s, c + z * z * C],
-		]
-	)
-
-
-def _rotation_from_attributes(attrs: Dict[str, str]) -> np.ndarray:
-	"""Determine rotation matrix from MJCF element attributes."""
-
-	if "quat" in attrs:
-		return _quat_to_matrix(_parse_floats(attrs.get("quat"), expected=4))
-	if "euler" in attrs:
-		return _euler_to_matrix(_parse_floats(attrs.get("euler"), expected=3))
-	if "axisangle" in attrs:
-		return _axisangle_to_matrix(_parse_floats(attrs.get("axisangle"), expected=4))
-	return np.eye(3)
-
-
-def _compose_transform(attrs: Dict[str, str]) -> np.ndarray:
-	"""Create a 4x4 homogeneous transform from MJCF attributes."""
-
-	rot = _rotation_from_attributes(attrs)
-	pos = _parse_floats(attrs.get("pos"), expected=3, default=(0.0, 0.0, 0.0))
-
-	transform = np.eye(4)
-	transform[:3, :3] = rot
-	transform[:3, 3] = pos
-	return transform
 
 
 # ---------------------------------------------------------------------------
@@ -289,10 +194,9 @@ def _material_properties(
 	return props
 
 
-def _load_and_transform_mesh(
+
+def _load_mesh(
 	mesh_path: Path,
-	transform: np.ndarray,
-	scale: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray]:
 	ms = pymeshlab.MeshSet()
 	ms.load_new_mesh(str(mesh_path))
@@ -311,16 +215,11 @@ def _load_and_transform_mesh(
 			logger.warning("Failed to triangulate mesh '%s'; skipping", mesh_path)
 			return np.empty((0, 3)), np.empty((0, 3), dtype=int)
 
-	scaled_vertices = vertices * scale
-	hom_vertices = np.hstack([scaled_vertices, np.ones((scaled_vertices.shape[0], 1))])
-	transformed_vertices = (transform @ hom_vertices.T).T[:, :3]
-
-	return transformed_vertices, faces
+	return vertices, faces
 
 
 def _collect_body_geoms(
 	body_elem: ET.Element,
-	parent_transform: np.ndarray,
 	mesh_assets: Dict[str, Path],
 	material_assets: Dict[str, Dict[str, str]],
 	texture_assets: Dict[str, Dict[str, str]],
@@ -330,7 +229,6 @@ def _collect_body_geoms(
 	material_export_names: Dict[str, str],
 ) -> Tuple[str, List[Dict[str, object]]]:
 	body_name = body_elem.attrib.get("name") or "unnamed_body"
-	body_transform = parent_transform @ _compose_transform(body_elem.attrib)
 
 	geoms: List[Dict[str, object]] = []
 
@@ -348,16 +246,6 @@ def _collect_body_geoms(
 		if mesh_path is None or not mesh_path.exists():
 			logger.warning("Mesh '%s' in body '%s' not found at '%s'", mesh_name, body_name, mesh_path)
 			continue
-
-		geom_transform = body_transform @ _compose_transform(geom.attrib)
-
-		scale_attr = geom.attrib.get("scale")
-		if scale_attr:
-			scale = _parse_floats(scale_attr)
-			if scale.size == 1:
-				scale = np.repeat(scale, 3)
-		else:
-			scale = np.ones(3)
 
 		geom_name = geom.attrib.get("name") or mesh_name
 		material_attr = geom.attrib.get("material")
@@ -383,8 +271,6 @@ def _collect_body_geoms(
 			{
 				"geom_name": geom_name,
 				"mesh_path": mesh_path,
-				"transform": geom_transform,
-				"scale": scale,
 				"material": export_name,
 			}
 		)
@@ -395,7 +281,6 @@ def _collect_body_geoms(
 def _export_body(
 	body_elem: ET.Element,
 	*,
-	parent_transform: np.ndarray,
 	output_dir: Path,
 	mesh_assets: Dict[str, Path],
 	material_assets: Dict[str, Dict[str, str]],
@@ -403,13 +288,11 @@ def _export_body(
 	body_name_usage: set[str],
 	material_export_names: Dict[str, str],
 ) -> int:
-	body_transform = parent_transform @ _compose_transform(body_elem.attrib)
 	default_material_prefix = (body_elem.attrib.get("name") or "body").replace(" ", "_")
 	material_defs: Dict[str, Dict[str, str]] = {}
 
 	body_name, geoms = _collect_body_geoms(
 		body_elem,
-		parent_transform=parent_transform,
 		mesh_assets=mesh_assets,
 		material_assets=material_assets,
 		texture_assets=texture_assets,
@@ -429,11 +312,7 @@ def _export_body(
 		face_materials: List[str] = []
 
 		for geom in geoms:
-			geom_vertices, geom_faces = _load_and_transform_mesh(
-				geom["mesh_path"],
-				transform=geom["transform"],
-				scale=geom["scale"],
-			)
+			geom_vertices, geom_faces = _load_mesh(geom["mesh_path"])
 
 			if geom_vertices.size == 0 or geom_faces.size == 0:
 				logger.warning("Skipping empty mesh '%s' in body '%s'", geom["geom_name"], body_name)
@@ -456,7 +335,6 @@ def _export_body(
 	for child in body_elem.findall("body"):
 		exported += _export_body(
 			child,
-			parent_transform=body_transform,
 			output_dir=output_dir,
 			mesh_assets=mesh_assets,
 			material_assets=material_assets,
@@ -484,7 +362,6 @@ def export_mjcf_bodies(mjcf_path: Path, output_dir: Path) -> None:
 	for body_elem in worldbody.findall("body"):
 		total_exported += _export_body(
 			body_elem,
-			parent_transform=np.eye(4),
 			output_dir=output_dir,
 			mesh_assets=mesh_assets,
 			material_assets=material_assets,
