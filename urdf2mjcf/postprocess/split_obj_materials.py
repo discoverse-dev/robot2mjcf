@@ -103,35 +103,33 @@ def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[
                 maintain_order=False,
             )
             
-            # Create target directory in the same directory as the original OBJ file
-            # This maintains the original directory structure
-            obj_stem = obj_file.stem
-            obj_target_dir = obj_file.parent / obj_stem
-            obj_target_dir.mkdir(parents=True, exist_ok=True)
-            
-            logger.info(f"Splitting OBJ file {obj_file.name} by materials in: {obj_target_dir}")
             
             if isinstance(mesh, trimesh.base.Trimesh):
                 logger.warning(f"OBJ file {obj_file.name} is a single mesh, but has more than one material, skipping split processing, please check the mtl file")
                 mesh.export(obj_file.as_posix())
             else:
+                # Create target directory in the same directory as the original OBJ file
+                # This maintains the original directory structure
+                obj_stem = obj_file.stem
+                obj_target_dir = obj_file.parent / obj_stem
+                obj_target_dir.mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"Splitting OBJ file {obj_file.name} by materials in: {obj_target_dir}")
                 # Multiple submeshes, save each one separately
                 logger.info(f"Splitting OBJ into {len(mesh.geometry)} submeshes by material")
                 for i, (material_name, geom) in enumerate(mesh.geometry.items()):
                     submesh_name = obj_target_dir / f"{obj_stem}_{i}.obj"
-                    geom.visual.material.name = material_name
-                    geom.export(submesh_name.as_posix(), include_texture=True, header=None)
+                    if type(geom.visual) is trimesh.visual.texture.TextureVisuals:
+                        geom.visual.material.name = material_name
+                    else:
+                        logger.warning(f"Submesh: {submesh_name.name}, Geometry {material_name} does not have texture visuals")
+                    mtl_file = f"{obj_stem}_{i}_{material_name}.mtl"
+                    geom.export(submesh_name.as_posix(), include_texture=True, header=None, mtl_name=mtl_file)
+                    # Mark files for deletion instead of deleting immediately
+                    files_to_delete.append(obj_target_dir / mtl_file)
                     logger.info(f"Saved submesh: {submesh_name.name} (material: {material_name})")
-                
-                # Mark files for deletion instead of deleting immediately
-                material_mtl = obj_target_dir / "material.mtl"
-                if material_mtl.exists():
-                    files_to_delete.append(material_mtl)
-            
-            # Mark original files for deletion
-            files_to_delete.append(mtl_file)
-            files_to_delete.append(obj_file)
-            logger.info(f"Marked for deletion: {obj_file.name}, {mtl_file.name}")
+                # Mark original files for deletion
+                files_to_delete.append(obj_file)
 
         except ImportError:
             logger.warning("trimesh not available, cannot split OBJ by materials")
