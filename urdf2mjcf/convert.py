@@ -16,6 +16,7 @@ from urdf2mjcf.postprocess.add_backlash import add_backlash
 from urdf2mjcf.postprocess.add_floor import add_floor
 from urdf2mjcf.postprocess.add_light import add_light
 from urdf2mjcf.postprocess.update_mesh import update_mesh
+from urdf2mjcf.postprocess.move_mesh_scale import move_mesh_scale
 from urdf2mjcf.postprocess.convex_collision import convex_collision
 from urdf2mjcf.postprocess.convex_decomposition import convex_decomposition
 from urdf2mjcf.postprocess.split_obj_materials import split_obj_by_materials
@@ -826,6 +827,8 @@ def convert_urdf_to_mjcf(
         split_obj_by_materials(mjcf_path)  # Split OBJ files by materials
     print("Updating meshes...")
     update_mesh(mjcf_path, max_vertices)
+    print(f"Moving mesh scale attributes...")
+    move_mesh_scale(mjcf_path)
     print(f"Checking shell meshes...")
     check_shell_meshes(mjcf_path)
 
