@@ -108,22 +108,9 @@ def add_default(
         collision_default,
         "geom",
         attrib={
-            "material": "default_material" if collision_only else "collision_material",
-            "condim": str(metadata.collision_params.condim),
             "contype": str(metadata.collision_params.contype),
             "conaffinity": str(metadata.collision_params.conaffinity),
-            "priority": str(metadata.collision_params.priority),
             "group": "3" if not collision_only else "2",
-            "solref": " ".join(f"{x:.6g}" for x in metadata.collision_params.solref),
-            "friction": " ".join(f"{x:.6g}" for x in metadata.collision_params.friction),
-        },
-    )
-    ET.SubElement(
-        collision_default,
-        "equality",
-        attrib={
-            "solimp": " ".join(f"{x:.6g}" for x in metadata.collision_params.solimp),
-            "solref": " ".join(f"{x:.6g}" for x in metadata.collision_params.solref),
         },
     )
 
@@ -202,21 +189,6 @@ def add_weld_constraints(root: ET.Element, metadata: ConversionMetadata) -> None
                 "solref": " ".join(f"{x:.6g}" for x in weld.solref),
             },
         )
-
-def add_size(root: ET.Element) -> None:
-    """Add a size element to the MJCF root.
-
-    Args:
-        root: The MJCF root element.
-    """
-    ET.SubElement(
-        root, 
-        "size", 
-        attrib={
-            "nconmax": "5000",
-            "njmax": "5000"
-        }
-    )
 
 def add_option(root: ET.Element) -> None:
     """Add an option element to the MJCF root.
@@ -324,14 +296,3 @@ def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[
             "rgba": "0.7 0.7 0.7 1",
         },
     )
-
-    # Add blue transparent material for collision geometries
-    ET.SubElement(
-        asset,
-        "material",
-        attrib={
-            "name": "collision_material",
-            "rgba": "1.0 0.28 0.1 0.9",
-        },
-    )
-

@@ -527,7 +527,8 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
                 continue
             
             mesh_name = geom.attrib.get("mesh")
-            if not mesh_name:
+            mesh_class = geom.attrib.get("class", "")
+            if not mesh_name or mesh_class == "collision":
                 continue
             
             # 创建材质属性签名

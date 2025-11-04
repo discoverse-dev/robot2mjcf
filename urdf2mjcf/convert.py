@@ -16,6 +16,7 @@ from urdf2mjcf.postprocess.add_backlash import add_backlash
 from urdf2mjcf.postprocess.add_floor import add_floor
 from urdf2mjcf.postprocess.add_light import add_light
 from urdf2mjcf.postprocess.update_mesh import update_mesh
+from urdf2mjcf.postprocess.move_mesh_scale import move_mesh_scale
 from urdf2mjcf.postprocess.convex_collision import convex_collision
 from urdf2mjcf.postprocess.convex_decomposition import convex_decomposition
 from urdf2mjcf.postprocess.split_obj_materials import split_obj_by_materials
@@ -29,7 +30,8 @@ from urdf2mjcf.utils import save_xml
 
 from urdf2mjcf.geometry import (
     ParsedJointParams, 
-    GeomElement, 
+    GeomElement,
+    format_value,
     compute_min_z, 
     rpy_to_quat
 )
@@ -38,7 +40,6 @@ from urdf2mjcf.mjcf_builders import (
     add_default,
     add_contact,
     add_weld_constraints,
-    add_size,
     add_option,
     add_visual,
     add_assets,
@@ -163,8 +164,7 @@ def convert_urdf_to_mjcf(
 
     # Add compiler, option, visual, and assets
     add_compiler(mjcf_root)
-    add_size(mjcf_root)
-    add_option(mjcf_root)
+    # add_option(mjcf_root)
     add_visual(mjcf_root)
     add_default(mjcf_root, metadata, default_metadata, collision_only)
 
@@ -564,18 +564,10 @@ def convert_urdf_to_mjcf(
     body_pos = robot_body.attrib.get("pos", "0 0 0")
     body_pos = [float(x) for x in body_pos.split()]
     body_pos[2] += computed_offset
-    robot_body.attrib["pos"] = " ".join(f"{x:.8f}" for x in body_pos)
+    robot_body.attrib["pos"] = " ".join(f"{format_value(x)}" for x in body_pos)
 
     robot_body.attrib["childclass"] = ROBOT_CLASS
     worldbody.append(robot_body)
-
-    # Add a site to the root link for sensors
-    root_site_name = f"{root_link_name}_site"
-    ET.SubElement(
-        robot_body,
-        "site",
-        attrib={"name": root_site_name, "pos": "0 0 0", "quat": "1 0 0 0"},
-    )
 
     # Collect materials from single-material OBJ files
     obj_materials = {}
@@ -826,6 +818,8 @@ def convert_urdf_to_mjcf(
         split_obj_by_materials(mjcf_path)  # Split OBJ files by materials
     print("Updating meshes...")
     update_mesh(mjcf_path, max_vertices)
+    print(f"Moving mesh scale attributes...")
+    move_mesh_scale(mjcf_path)
     print(f"Checking shell meshes...")
     check_shell_meshes(mjcf_path)
 
