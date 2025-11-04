@@ -35,6 +35,7 @@ dependencies = [
     "fast-simplification",
     "pillow",
     "pymeshlab",
+    "rtree",
     "tqdm"
 ]
 

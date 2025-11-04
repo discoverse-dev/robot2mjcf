@@ -959,6 +959,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.num_workers == 0:
         args.num_workers = max(1, mp.cpu_count() // 2)
+
+    # 某些 trimesh.contains 实现依赖的 C 库在线程并发时并不安全，容易触发崩溃。
+    # 若未启用 embree/raypyc 后端，则强制退回单线程以避免 segmentation fault。
+    contains_thread_safe = False
+    try:
+        from trimesh import ray
+
+        contains_thread_safe = bool(getattr(ray, "has_embree", False) or getattr(ray, "has_raypyc", False))
+    except Exception:
+        contains_thread_safe = False
+
+    ori_worker = args.num_workers
+    if args.num_workers > 1 and not contains_thread_safe:
+        print("[WARN] 检测到 trimesh.contains 使用的后端不支持多线程，已强制使用单线程以避免崩溃")
+        args.num_workers = 1
+
     print("[4/7] 遍历子部件并做 AABB 包含粗筛 + 精细匹配 ... (workers={})".format(args.num_workers))
 
     def _process_one(sub_name: str, sub_mesh: "trimesh.Trimesh"):
@@ -1084,6 +1100,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         failures.append(fail)
                 except Exception as exc:  # pragma: no cover
                     failures.append({'submesh': futs[fut], 'reason': f'worker_exception: {exc}'})
+
+    # 恢复线程数
+    args.num_workers = ori_worker
 
     merged_outputs = []
     unmatched_aggregate_path = None
