@@ -15,15 +15,19 @@ from urdf2mjcf.postprocess.mesh_converter import dae2obj
 logger = logging.getLogger(__name__)
 
 
-def process_obj_materials(obj_file: Path) -> dict[str, Material]:
+def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[str, Material]:
     """Process MTL materials from OBJ file and split by materials.
     
     Args:
         obj_file: Path to the OBJ file
+        files_to_delete: List to collect files that should be deleted later
         
     Returns:
         Dictionary mapping material names to Material objects
     """
+    if files_to_delete is None:
+        files_to_delete = []
+    
     materials = {}
     
     if not obj_file.exists():
@@ -77,7 +81,7 @@ def process_obj_materials(obj_file: Path) -> dict[str, Material]:
                 maintain_order=False,
             )
             mesh.export(obj_file.as_posix(), mtl_name=mtl_file.name)
-            # os.remove(mtl_file)
+            # Don't delete MTL here - it might be used by other OBJs
             return materials
 
         # Process each material
@@ -118,9 +122,16 @@ def process_obj_materials(obj_file: Path) -> dict[str, Material]:
                     geom.visual.material.name = material_name
                     geom.export(submesh_name.as_posix(), include_texture=True, header=None)
                     logger.info(f"Saved submesh: {submesh_name.name} (material: {material_name})")
-                os.remove(obj_target_dir / "material.mtl")
-            os.remove(mtl_file)
-            os.remove(obj_file)
+                
+                # Mark files for deletion instead of deleting immediately
+                material_mtl = obj_target_dir / "material.mtl"
+                if material_mtl.exists():
+                    files_to_delete.append(material_mtl)
+            
+            # Mark original files for deletion
+            files_to_delete.append(mtl_file)
+            files_to_delete.append(obj_file)
+            logger.info(f"Marked for deletion: {obj_file.name}, {mtl_file.name}")
 
         except ImportError:
             logger.warning("trimesh not available, cannot split OBJ by materials")
@@ -143,6 +154,9 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     mjcf_path = Path(mjcf_path)
     tree = ET.parse(mjcf_path)
     root = tree.getroot()
+    
+    # Track files to delete at the end
+    files_to_delete = []
     
     # Get mesh directory
     compiler = root.find("compiler")
@@ -198,9 +212,9 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
                         logger.info(f"Updated asset reference: {mesh_name} -> {obj_relative_path}")
                         break
                 
-                # Remove original DAE file
-                # os.remove(dae_file_path)
-                logger.info(f"Deleted original DAE file: {dae_file_path}")
+                # Mark original DAE file for deletion
+                files_to_delete.append(dae_file_path)
+                logger.info(f"Marked for deletion: {dae_file_path}")
                 
             except Exception as e:
                 logger.error(f"Failed to convert DAE file {dae_file_path}: {e}")
@@ -247,7 +261,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             continue
         
         # Process this OBJ file
-        obj_materials = process_obj_materials(obj_file_path)
+        obj_materials = process_obj_materials(obj_file_path, files_to_delete)
         all_mtl_materials.update(obj_materials)
         
         # Check for split meshes in the same directory as the original OBJ file
@@ -403,7 +417,20 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     
     # Save the updated MJCF file
     save_xml(mjcf_path, tree)
-    logger.info(f"Updated MJCF file with split OBJ materials: {mjcf_path}") 
+    logger.info(f"Updated MJCF file with split OBJ materials: {mjcf_path}")
+    
+    # Now safely delete all marked files
+    deleted_count = 0
+    for file_path in files_to_delete:
+        if file_path.exists():
+            try:
+                os.remove(file_path)
+                deleted_count += 1
+                logger.info(f"Deleted: {file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete {file_path}: {e}")
+    
+    logger.info(f"Cleanup complete: deleted {deleted_count} files") 
 
 
 def main() -> None:
