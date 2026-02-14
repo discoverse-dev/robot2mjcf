@@ -32,7 +32,7 @@ import shutil
 import argparse
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from typing import Sequence
 
 import numpy as np
 import multiprocessing as mp
@@ -55,6 +55,9 @@ try:
 except Exception as exc:
     print("需要 trimesh 依赖: pip install trimesh", file=sys.stderr)
     raise
+
+MAX_FACE_COUNT = 180_000  # 超过 18 万面时自动降采样
+
 
 @dataclass
 class PartInfo:
@@ -80,9 +83,9 @@ class PreParsedOBJ:
     object_materials: dict[str, str]                       # name → dominant material
 
 
-def load_mapping(path: Path) -> List[PartInfo]:
+def load_mapping(path: Path) -> list[PartInfo]:
     data = json.loads(path.read_text())
-    parts: List[PartInfo] = []
+    parts: list[PartInfo] = []
     for p in data.get("parts", []):
         try:
             name = p["name"]
@@ -96,8 +99,7 @@ def load_mapping(path: Path) -> List[PartInfo]:
         parts.append(PartInfo(name=name, aabb_min=aabb_min, aabb_max=aabb_max, transform=transform))
     return parts
 
-def compute_aabb(mesh: "trimesh.Trimesh") -> Tuple[np.ndarray, np.ndarray]:
-    # trimesh 有 bounds
+def compute_aabb(mesh: "trimesh.Trimesh") -> tuple[np.ndarray, np.ndarray]:
     return mesh.bounds[0].copy(), mesh.bounds[1].copy()
 
 def load_mesh_any(path: Path) -> "trimesh.Trimesh":
@@ -222,11 +224,7 @@ def _raw_load_obj_separate(path: Path) -> dict:
         )
     geoms = data.get('geometry', {})
     out = {}
-    # geoms 可能是 dict{name: dict|Trimesh}
-    if isinstance(geoms, dict):
-        iterable = geoms.items()
-    else:  # 兼容列表情形
-        iterable = enumerate(geoms)
+    iterable = geoms.items() if isinstance(geoms, dict) else enumerate(geoms)
     for key, entry in iterable:
         name = str(key)
         g = entry
@@ -239,8 +237,7 @@ def _raw_load_obj_separate(path: Path) -> dict:
             if verts is None or faces is None:
                 continue
             try:
-                # 若存在视觉/材质信息传入
-                visual = g.get('visual') if 'visual' in g else None
+                visual = g.get('visual')
                 tm = trimesh.Trimesh(vertices=verts, faces=faces, visual=visual, process=False)
                 tm.metadata['name'] = str(name)
                 out[name] = tm
@@ -250,22 +247,19 @@ def _raw_load_obj_separate(path: Path) -> dict:
 
 
 def load_obj_parts(obj_path: Path):
-    """加载 group OBJ，确保不因同材质合并。"""
-    # 方案 1: 文本级解析 (统一解析器，正确保留 object 名称)
+    """加载 OBJ 按 object/group 拆分, 确保不因同材质合并。"""
     try:
         preparsed = _preparse_obj_full(obj_path)
         if preparsed.object_meshes:
             return preparsed.object_meshes
     except Exception:
         pass
-    # 方案 2: trimesh 底层拆分
     try:
         mapping = _raw_load_obj_separate(obj_path)
         if mapping:
             return mapping
     except Exception:
-        pass  # 回退
-    # 回退到普通方式 (可能发生合并)
+        pass
     scene = trimesh.load(str(obj_path), force='scene', skip_materials=True)
     if isinstance(scene, trimesh.Trimesh):
         return {scene.metadata.get('name', 'mesh'): scene}
@@ -406,15 +400,9 @@ def build_part_kdtrees(obj_parts: dict) -> dict[str, cKDTree]:
 
 
 def _resolve_part_geom_name(part_name: str, obj_parts: dict) -> str | None:
-    """查找 part 名称在 obj_parts 中的 key。
-
-    仅使用精确匹配和归一化精确匹配 (大小写不敏感)。
-    不使用危险的子串匹配，避免 'wheel' 误匹配到 'wheel_back' 等情况。
-    """
-    # 1. 精确匹配
+    """精确匹配或大小写不敏感匹配 part 名称到 obj_parts 的 key。"""
     if part_name in obj_parts:
         return part_name
-    # 2. 归一化匹配 (忽略大小写 + 去除前后空白)
     norm = part_name.strip().lower()
     for n in obj_parts:
         if n.strip().lower() == norm:
@@ -423,7 +411,7 @@ def _resolve_part_geom_name(part_name: str, obj_parts: dict) -> str | None:
 
 
 def pick_best_part(
-    candidates: List[PartInfo],
+    candidates: list[PartInfo],
     obj_parts: dict,
     input_mesh: "trimesh.Trimesh",
     sample: int,
@@ -473,7 +461,7 @@ def pick_best_part(
 
 
 def transform_to_local(mesh: "trimesh.Trimesh", transform_part_to_world: np.ndarray) -> "trimesh.Trimesh":
-    # 我们希望得到 part 局部坐标: x_local = T^{-1} * x_world
+    """将 mesh 从世界坐标变换到 part 局部坐标。"""
     T_inv = np.linalg.inv(transform_part_to_world)
     verts_h = np.hstack([mesh.vertices, np.ones((len(mesh.vertices), 1))])
     verts_local = (T_inv @ verts_h.T).T[:, :3]
@@ -482,62 +470,221 @@ def transform_to_local(mesh: "trimesh.Trimesh", transform_part_to_world: np.ndar
     return local_mesh
 
 
-def save_mesh(mesh: "trimesh.Trimesh", path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    mesh.export(str(path))
-
 
 def _sanitize_obj_mtl(obj_path: Path):
-    """确保: 1) mtllib 引用的 mtl 文件名 == obj 基名; 2) 删除所有纹理贴图引用 (map_*) 行。
-
-    若原先生成的 mtl 名称不同则重命名并更新 obj 文件中的 mtllib 行。随后清理 mtl。"""
+    """确保 OBJ 的 mtllib 引用 <obj_stem>.mtl, 必要时重命名 MTL 文件并写回 OBJ。"""
     if not obj_path.exists():
         return
     try:
         text = obj_path.read_text(errors='ignore').splitlines()
     except Exception:
         return
-    mtllib_line_idx = None
-    mtllib_name = None
+
+    desired_mtl = obj_path.stem + '.mtl'
+    desired_line = f'mtllib {desired_mtl}'
+    mtl_path = None
+    modified = False
+
+    # 查找已有 mtllib 行
     for i, line in enumerate(text):
         if line.startswith('mtllib '):
-            mtllib_line_idx = i
             parts_line = line.strip().split(maxsplit=1)
             if len(parts_line) == 2:
-                mtllib_name = parts_line[1].strip()
+                mtl_path = obj_path.parent / parts_line[1].strip()
+            if line.strip() != desired_line:
+                text[i] = desired_line
+                modified = True
             break
-    desired_mtl = obj_path.stem + '.mtl'
-    mtl_path = None
-    if mtllib_name:
-        mtl_path = obj_path.parent / mtllib_name
-    # 如果没有 mtllib 行但生成了默认 material.mtl, 也尝试处理
-    if mtllib_name is None:
-        # 可能存在 material.mtl 或 与 obj 同名 mtl
-        cand1 = obj_path.parent / 'material.mtl'
-        cand2 = obj_path.with_suffix('.mtl')
-        if cand1.exists() and not cand2.exists():
-            mtllib_name = cand1.name
-            mtl_path = cand1
-            # 插入一行 mtllib
-            text.insert(0, f'mtllib {desired_mtl}')
-            mtllib_line_idx = 0
-        elif cand2.exists():
-            mtllib_name = cand2.name
-            mtl_path = cand2
-            # 确保引用存在
-            if not any(l.startswith('mtllib ') for l in text[:5]):
-                text.insert(0, f'mtllib {desired_mtl}')
-                mtllib_line_idx = 0
-    # 重命名 mtl (若需要)
+    else:
+        # 无 mtllib 行 — 查找孤立 mtl 文件
+        for cand in [obj_path.with_suffix('.mtl'), obj_path.parent / 'material.mtl']:
+            if cand.exists():
+                mtl_path = cand
+                text.insert(0, desired_line)
+                modified = True
+                break
+
+    # 重命名 mtl 文件以匹配 obj 基名
     if mtl_path and mtl_path.exists() and mtl_path.name != desired_mtl:
         target = obj_path.parent / desired_mtl
         try:
             if target.exists():
                 target.unlink()
             mtl_path.rename(target)
-            mtl_path = target
         except Exception:
             pass
+
+    if modified:
+        try:
+            obj_path.write_text('\n'.join(text) + '\n')
+        except Exception:
+            pass
+
+
+MIN_GROUP_FACES = 10000  # 面数低于此值的材质组不降采样
+
+
+def _decimate_submesh(v_arr: np.ndarray, f_arr: np.ndarray, target_faces: int) -> tuple[np.ndarray, np.ndarray]:
+    """对单个子网格做 QEM 降采样, 返回 (new_vertices, new_faces)。
+
+    优先 pymeshlab (保边界/法线/拓扑), 回退到 trimesh。
+    """
+    n = len(f_arr)
+    if n <= target_faces:
+        return v_arr, f_arr
+
+    # pymeshlab: MeshLab Quadric Edge Collapse — 保边界/法线/拓扑, 平面区域优先简化
+    try:
+        import pymeshlab
+        ms = pymeshlab.MeshSet()
+        ms.add_mesh(pymeshlab.Mesh(v_arr.astype(np.float64), f_arr.astype(np.int32)))
+        ms.meshing_decimation_quadric_edge_collapse(
+            targetfacenum=target_faces,
+            preserveboundary=True, preservenormal=True, preservetopology=True,
+            optimalplacement=True, planarquadric=True, planarweight=0.002,
+            qualitythr=0.5,
+        )
+        m = ms.current_mesh()
+        return m.vertex_matrix(), m.face_matrix()
+    except Exception:
+        pass
+
+    # 兜底: trimesh
+    result = trimesh.Trimesh(vertices=v_arr, faces=f_arr, process=False
+                             ).simplify_quadric_decimation(target_faces)
+    return np.asarray(result.vertices), np.asarray(result.faces)
+
+
+def _decimate_obj_if_needed(obj_path: Path, max_faces: int = MAX_FACE_COUNT):
+    """若 OBJ 三角面数 > max_faces, 按材质分组独立 QEM 降采样 (不跨材质合并面片)。
+
+    小组 (≤ MIN_GROUP_FACES) 原样保留, 缩减预算集中分配给大组。
+    降采样前备份原始文件为 xxx-origin.obj/mtl。
+    """
+    if not obj_path.exists():
+        return
+    try:
+        raw_lines = obj_path.read_text(errors='ignore').splitlines()
+    except Exception:
+        return
+
+    try:
+        # ---- 1. 解析 OBJ: 顶点 + 按材质分组的面 ----
+        all_vertices: list[list[float]] = []
+        mtllib_line: str | None = None
+        current_mtl: str | None = None
+        material_order: list[str | None] = []
+        material_faces: dict[str | None, list[list[int]]] = {}
+
+        for line in raw_lines:
+            if line.startswith('v '):
+                p = line.split()
+                all_vertices.append([float(p[1]), float(p[2]), float(p[3])])
+            elif line.startswith('mtllib '):
+                mtllib_line = line
+            elif line.startswith('usemtl '):
+                current_mtl = line.split(maxsplit=1)[1].strip() if len(line.split(maxsplit=1)) > 1 else None
+                if current_mtl not in material_faces:
+                    material_order.append(current_mtl)
+                    material_faces[current_mtl] = []
+            elif line.startswith('f '):
+                vis = [int(t.split('/')[0]) - 1 for t in line.split()[1:]]
+                if current_mtl not in material_faces:
+                    material_order.append(current_mtl)
+                    material_faces[current_mtl] = []
+                grp = material_faces[current_mtl]
+                if len(vis) == 3:
+                    grp.append(vis)
+                elif len(vis) > 3:  # fan 三角化
+                    for j in range(1, len(vis) - 1):
+                        grp.append([vis[0], vis[j], vis[j + 1]])
+
+        if not all_vertices or not material_faces:
+            return
+
+        v_arr = np.array(all_vertices, dtype=np.float64)
+        total_faces = sum(len(fl) for fl in material_faces.values())
+        if total_faces <= max_faces:
+            return
+
+        # 备份原始文件
+        origin_obj = obj_path.with_stem(obj_path.stem + '-origin')
+        shutil.copy2(obj_path, origin_obj)
+        mtl_src = obj_path.with_suffix('.mtl')
+        if mtl_src.exists():
+            shutil.copy2(mtl_src, mtl_src.with_stem(mtl_src.stem + '-origin'))
+
+        print(f"    [降采样] {obj_path.name}: {total_faces} -> {max_faces} faces "
+              f"(原始备份: {origin_obj.name})")
+
+        # ---- 2. 分配面数预算: 小组保留, 大组按比例缩减 ----
+        keep_faces = sum(len(fl) for fl in material_faces.values() if len(fl) <= MIN_GROUP_FACES)
+        large_total = total_faces - keep_faces
+        budget = max(0, max_faces - keep_faces)
+
+        group_targets: dict[str | None, int] = {}
+        for name, fl in material_faces.items():
+            ng = len(fl)
+            if ng <= MIN_GROUP_FACES:
+                group_targets[name] = ng
+            elif large_total > 0:
+                group_targets[name] = min(ng, max(MIN_GROUP_FACES, round(budget * ng / large_total)))
+            else:
+                group_targets[name] = ng
+
+        # ---- 3. 按材质组独立降采样 ----
+        group_results: dict[str | None, tuple[np.ndarray, np.ndarray]] = {}
+        for mtl_name in material_order:
+            fl = material_faces[mtl_name]
+            if not fl:
+                continue
+            g_faces = np.array(fl, dtype=np.int64)
+            unique_vis = np.unique(g_faces.ravel())
+            g2l = {int(g): l for l, g in enumerate(unique_vis)}
+            local_v = v_arr[unique_vis]
+            local_f = np.vectorize(g2l.get)(g_faces).astype(np.int64)
+            target = group_targets[mtl_name]
+            if len(local_f) <= target:
+                group_results[mtl_name] = (local_v, local_f)
+            else:
+                group_results[mtl_name] = _decimate_submesh(local_v, local_f, target)
+
+        # ---- 4. 拼合输出 OBJ ----
+        out_lines: list[str] = []
+        if mtllib_line:
+            out_lines.append(mtllib_line)
+
+        v_offset = 0
+        group_v_offsets: dict[str | None, int] = {}
+        for mtl_name in material_order:
+            if mtl_name not in group_results:
+                continue
+            gv, _ = group_results[mtl_name]
+            group_v_offsets[mtl_name] = v_offset
+            for v in gv:
+                out_lines.append(f'v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}')
+            v_offset += len(gv)
+
+        actual_total = 0
+        for mtl_name in material_order:
+            if mtl_name not in group_results:
+                continue
+            _, gf = group_results[mtl_name]
+            if len(gf) == 0:
+                continue
+            if mtl_name is not None:
+                out_lines.append(f'usemtl {mtl_name}')
+            off = group_v_offsets[mtl_name]
+            for f in gf:
+                out_lines.append(f'f {f[0]+off+1} {f[1]+off+1} {f[2]+off+1}')
+            actual_total += len(gf)
+
+        obj_path.write_text('\n'.join(out_lines) + '\n')
+        print(f"    [降采样完成] {obj_path.name}: {actual_total} faces "
+              f"({len(group_results)} 个材质组)")
+
+    except Exception as exc:
+        print(f"    [WARN] 降采样失败 {obj_path.name}: {exc}", file=sys.stderr)
 
 
 def _parse_original_mtls(obj_path: Path) -> dict:
@@ -571,7 +718,7 @@ def _parse_original_mtls(obj_path: Path) -> dict:
         for raw in mlines:
             s = raw.strip()
             if s.lower().startswith('map_'):
-                continue  # 删除贴图行
+                continue
             if s.startswith('newmtl '):
                 _commit()
                 current = s.split(maxsplit=1)[1].strip()
@@ -663,12 +810,18 @@ def _rebuild_mtl_from_original(obj_path: Path, original_materials: dict):
             pass
 
 
-def _adjust_face_indices(face_line: str, v_offset: int, vt_offset: int, vn_offset: int) -> str:
-    """调整一个 f 行内的索引 (支持 v, v/vt, v//vn, v/vt/vn)。
+def _offset_idx(idx_str: str, offset: int) -> str:
+    """OBJ 索引偏移: 空串/0 原样返回, 否则 int(idx_str)+offset。"""
+    if not idx_str or idx_str == '0':
+        return idx_str
+    try:
+        return str(int(idx_str) + offset)
+    except ValueError:
+        return idx_str
 
-    face_line: 原始例如 'f 1/2/3 4/5/6 7/8/9'。
-    *_offset: 需要加到对应索引上的偏移量 (注意 OBJ 索引从 1 开始)。
-    """
+
+def _adjust_face_indices(face_line: str, v_offset: int, vt_offset: int, vn_offset: int) -> str:
+    """调整 f 行内的 v/vt/vn 索引, 加上各自的偏移量。"""
     try:
         parts = face_line.strip().split()
         if len(parts) < 4 or parts[0] != 'f':
@@ -676,28 +829,18 @@ def _adjust_face_indices(face_line: str, v_offset: int, vt_offset: int, vn_offse
         out_tokens = ['f']
         for token in parts[1:]:
             if '/' not in token:
-                # 只有顶点
-                vidx = int(token) + v_offset
-                out_tokens.append(str(vidx))
+                out_tokens.append(str(int(token) + v_offset))
                 continue
             a = token.split('/')
-            # 可能长度 2 或 3; 空字符串表示缺省
             v_str = a[0]
             vt_str = a[1] if len(a) >= 2 else ''
             vn_str = a[2] if len(a) >= 3 else ''
-            def _add(idx_str: str, offset: int) -> str:
-                if idx_str == '' or idx_str == '0':
-                    return idx_str
-                try:
-                    return str(int(idx_str) + offset)
-                except Exception:
-                    return idx_str
-            v_new = _add(v_str, v_offset)
-            vt_new = _add(vt_str, vt_offset)
-            vn_new = _add(vn_str, vn_offset)
-            if vn_str != '' or (len(a) == 3):
+            v_new = _offset_idx(v_str, v_offset)
+            vt_new = _offset_idx(vt_str, vt_offset)
+            vn_new = _offset_idx(vn_str, vn_offset)
+            if vn_str or len(a) == 3:
                 out_tokens.append(f"{v_new}/{vt_new}/{vn_new}")
-            elif vt_str != '':
+            elif vt_str:
                 out_tokens.append(f"{v_new}/{vt_new}")
             else:
                 out_tokens.append(v_new)
@@ -706,14 +849,8 @@ def _adjust_face_indices(face_line: str, v_offset: int, vt_offset: int, vn_offse
         return face_line
 
 
-def _manual_merge_component_objs(part_name: str, component_paths: List[Path], out_dir: Path, original_materials: dict) -> Path | None:
-    """手工合并多个局部坐标子 OBJ，完整保留其内部的多材质 usemtl 分段。
-
-    逻辑:
-      1. 逐文件解析 v/vt/vn/f/usemtl/o/g 行, 累加顶点并调整 f 索引。
-      2. 忽略子文件内部的 mtllib 行; 顶层写一个 mtllib <part_name>.mtl。
-      3. 汇总所有使用到的材质名 (usemtl) 并基于 original_materials 重建 mtl 文件 (去贴图)。
-    """
+def _manual_merge_component_objs(part_name: str, component_paths: list[Path], out_dir: Path, original_materials: dict) -> Path | None:
+    """合并多个子 OBJ 为一个, 保留 v/vt/vn/usemtl 结构并重建 MTL (去贴图)。"""
     if not component_paths:
         return None
     merged_obj = out_dir / f"{part_name}.obj"
@@ -724,7 +861,7 @@ def _manual_merge_component_objs(part_name: str, component_paths: List[Path], ou
     vt_offset = 0
     vn_offset = 0
     out_lines = [f"mtllib {merged_mtl.name}"]
-    used_materials: List[str] = []
+    used_materials: list[str] = []
     used_set = set()
     for comp_idx, comp_path in enumerate(component_paths):
         path_obj = Path(comp_path)
@@ -734,21 +871,19 @@ def _manual_merge_component_objs(part_name: str, component_paths: List[Path], ou
             lines = path_obj.read_text(errors='ignore').splitlines()
         except Exception:
             continue
-        # 预扫描: 统计该组件内部的 v/vt/vn 数量
         v_count = sum(1 for l in lines if l.startswith('v '))
         vt_count = sum(1 for l in lines if l.startswith('vt '))
         vn_count = sum(1 for l in lines if l.startswith('vn '))
         out_lines.append(f"# component {comp_idx}: {path_obj.name}")
-        has_object = any(l.startswith('o ') for l in lines[:20])
-        if not has_object:
+        if not any(l.startswith('o ') for l in lines[:20]):
             out_lines.append(f"o {path_obj.stem}")
-        # 写入几何 (直接复制 v/vt/vn)
+        # 第一遍: v/vt/vn (OBJ 要求顶点在面之前)
         for l in lines:
             if l.startswith('mtllib '):
                 continue
             if l.startswith('v ') or l.startswith('vt ') or l.startswith('vn '):
                 out_lines.append(l)
-        # 第二遍写拓扑和结构
+        # 第二遍: f/usemtl/o/g
         for l in lines:
             if l.startswith('mtllib '):
                 continue
@@ -765,7 +900,6 @@ def _manual_merge_component_objs(part_name: str, component_paths: List[Path], ou
             if l.startswith('f '):
                 adjusted = _adjust_face_indices(l, v_offset, vt_offset, vn_offset)
                 out_lines.append(adjusted)
-        # 更新全局 offset
         v_offset += v_count
         vt_offset += vt_count
         vn_offset += vn_count
@@ -773,7 +907,6 @@ def _manual_merge_component_objs(part_name: str, component_paths: List[Path], ou
         merged_obj.write_text('\n'.join(out_lines).rstrip() + '\n')
     except Exception:
         return None
-    # 构建 mtl
     if original_materials and used_materials:
         mtl_blocks = []
         for m in used_materials:
@@ -822,7 +955,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"    共 {len(parts)} 个 part")
 
     print("[2/7] 解析输入 mesh/scene ...")
-    submeshes: List[Tuple[str, trimesh.Trimesh]] = []
+    submeshes: list[tuple[str, trimesh.Trimesh]] = []
     multi = False
     original_mtl_map = {}
     name_to_material = {}
@@ -830,7 +963,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if mesh_path.suffix.lower() == '.obj':
         original_mtl_map = _parse_original_mtls(mesh_path)
-        # 文本级全量预解析 (正确保留 object 名称 + 材质 + v/vt/vn)
         try:
             preparsed_obj = _preparse_obj_full(mesh_path)
             name_to_material = preparsed_obj.object_materials
@@ -879,19 +1011,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print("[4/7] 遍历子部件并做 AABB 包含粗筛 + KD-Tree 精细匹配 ... (workers={})".format(args.num_workers))
 
-    # 收集所有 visual part (去重) 用于 AABB 兜底回退
-    visual_parts_dedup: List[PartInfo] = []
-    _seen_part_names: set[str] = set()
+    visual_parts_dedup: list[PartInfo] = []
+    seen_names: set[str] = set()
     for p in parts:
-        if p.name not in _seen_part_names:
-            _seen_part_names.add(p.name)
+        if p.name not in seen_names:
+            seen_names.add(p.name)
             visual_parts_dedup.append(p)
 
     def _process_one(sub_name: str, sub_mesh: "trimesh.Trimesh"):
         in_min, in_max = compute_aabb(sub_mesh)
         candidates = [p for p in parts if p.contains_aabb(in_min, in_max, eps=args.epsilon)]
         if not candidates:
-            # 兜底: AABB 严格包含无候选时，回退到 KD-Tree 全局最近匹配
             try:
                 best_part = pick_best_part(visual_parts_dedup, obj_parts, sub_mesh,
                                            sample=args.sample, kdtrees=kdtrees)
@@ -915,7 +1045,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         inv_transform = np.linalg.inv(best_part.transform)
 
         if preparsed_obj is not None and sub_name in preparsed_obj.object_faces:
-            # ===== 文本级导出: 完美保留材质/UV/法线 =====
             try:
                 ok = _text_export_object(preparsed_obj, sub_name, out_path,
                                          inv_transform, original_mtl_map)
@@ -924,7 +1053,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as exc:
                 return None, {'submesh': sub_name, 'reason': f'text_export_failed: {exc}'}
         else:
-            # ===== 回退: trimesh 导出 + 材质修复 =====
             local_mesh = transform_to_local(sub_mesh, best_part.transform)
             correct_material = name_to_material.get(sub_name)
             if correct_material:
@@ -979,8 +1107,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     matched_count = len(assignments)
     failed_count = len(failures)
 
-    merged_outputs = []
-    unmatched_aggregate_path = None
     if multi and assignments:
         print("[5/7] 合并同 part 子部件 -> 生成整体 OBJ+MTL ...")
         from collections import defaultdict
@@ -991,12 +1117,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 merged_path = _manual_merge_component_objs(part_name, [Path(p) for p in paths], out_dir, original_mtl_map)
                 if merged_path:
-                    merged_outputs.append({'part': part_name, 'obj': str(merged_path)})
+                    _decimate_obj_if_needed(merged_path)
                 else:
                     print(f"    [WARN] part {part_name} 合并失败 (结果为空)", file=sys.stderr)
             except Exception as exc:
                 print(f"    [WARN] 处理 part {part_name} 合并异常: {exc}", file=sys.stderr)
-
             part_dir = out_dir / part_name
             if part_dir.exists() and part_dir.is_dir():
                 try:
@@ -1005,54 +1130,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"    [WARN] 删除 part 文件夹失败: {part_dir} ({exc})", file=sys.stderr)
     else:
         print("[5/7] 跳过合并 (非多子部件或无成功匹配)")
+        for rec in assignments:
+            _decimate_obj_if_needed(Path(rec['output']))
 
-    # 额外: 汇总未匹配子部件成一个 OBJ (保留原世界坐标与材质)
+    # 汇总未匹配子部件成一个 OBJ
     if failures:
-        try:
-            fail_names = {f['submesh'] for f in failures if 'submesh' in f}
-            if fail_names:
-                scene_unmatched = trimesh.Scene()
-                for sub_name, sub_mesh in submeshes:
-                    if sub_name in fail_names:
-                        try:
-                            # 设置无贴图材质
-                            mat_name = None
-                            if hasattr(sub_mesh.visual, 'material') and sub_mesh.visual.material is not None:
-                                try:
-                                    mat_name = sub_mesh.visual.material.name
-                                except Exception:
-                                    pass
-                            if mat_name is None:
-                                mat_name = 'material_0'
-                            # 取原 diffuse 或默认
-                            diffuse = None
-                            try:
-                                diffuse = sub_mesh.visual.material.diffuse
-                            except Exception:
-                                pass
-                            sub_mesh.visual.material = SimpleMaterial(name=mat_name, diffuse=diffuse)
-                            scene_unmatched.add_geometry(sub_mesh, node_name=sub_name)
-                        except Exception:
-                            pass
-                if len(scene_unmatched.geometry) > 0:
-                    unmatched_aggregate_path = out_dir / 'unmatched.obj'
-                    try:
-                        scene_unmatched.export(str(unmatched_aggregate_path))
-                        _sanitize_obj_mtl(unmatched_aggregate_path)
-                        _rebuild_mtl_from_original(unmatched_aggregate_path, original_mtl_map)
-                        print(f"[额外] 未匹配聚合输出: {unmatched_aggregate_path}")
-                    except Exception as exc:
-                        print(f"[WARN] 未匹配聚合导出失败: {exc}", file=sys.stderr)
-        except Exception as exc:  # pragma: no cover
-            print(f"[WARN] 未匹配聚合步骤异常: {exc}", file=sys.stderr)
+        fail_names = {f['submesh'] for f in failures if 'submesh' in f}
+        scene_unmatched = trimesh.Scene()
+        for sub_name, sub_mesh in submeshes:
+            if sub_name not in fail_names:
+                continue
+            try:
+                mat = getattr(sub_mesh.visual, 'material', None)
+                mat_name = getattr(mat, 'name', None) or 'material_0'
+                diffuse = getattr(mat, 'diffuse', None)
+                sub_mesh.visual.material = SimpleMaterial(name=mat_name, diffuse=diffuse)
+                scene_unmatched.add_geometry(sub_mesh, node_name=sub_name)
+            except Exception:
+                pass
+        if scene_unmatched.geometry:
+            unmatched_path = out_dir / 'unmatched.obj'
+            try:
+                scene_unmatched.export(str(unmatched_path))
+                _sanitize_obj_mtl(unmatched_path)
+                _rebuild_mtl_from_original(unmatched_path, original_mtl_map)
+                print(f"[额外] 未匹配聚合输出: {unmatched_path}")
+            except Exception as exc:
+                print(f"[WARN] 未匹配聚合导出失败: {exc}", file=sys.stderr)
 
-    print("[6/7] 统计: 成功 {}/{}".format(matched_count, len(submeshes)))
+    print(f"[6/7] 统计: 成功 {matched_count}/{len(submeshes)}")
     if failures:
-        print("[7/7] 有未匹配子部件: {}".format(failed_count), file=sys.stderr)
+        print(f"[7/7] 有未匹配子部件: {failed_count}", file=sys.stderr)
         if matched_count == 0:
             return 3
     else:
         print("[7/7] 全部子部件匹配成功")
+
+    print(f"保存路径: {out_dir.resolve()}")
     return 0
 
 

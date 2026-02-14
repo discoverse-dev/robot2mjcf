@@ -17,9 +17,8 @@ Design notes:
 	  are suffixed:  link__v0 / link__c0 etc.
 	- Keeps geometry separation (no vertex welding) for editor inspection.
 
-Limitations (first version):
+Limitations:
 	- No primitive (box/cylinder/sphere) expansion (only <mesh> supported)
-	- No package:// resolution (could be integrated from existing project resolvers)
 	- No MTL material export
 	- Non-uniform scale does not recompute corrected normals (trimesh may still provide)
 
@@ -206,6 +205,22 @@ def compute_global_transforms(root_link: str, joint_infos: Dict[str, JointInfo],
 
 # ============================= Geometry Collection ============================= #
 
+def _resolve_package_path(filename: str, urdf_dir: Path) -> Path:
+	"""Resolve mesh filename (package://, file://, or relative path)."""
+	if filename.startswith("package://"):
+		rest = filename[len("package://"):]
+		p = urdf_dir
+		for _ in range(6):  # urdf_dir itself + 5 ancestors
+			candidate = (p / rest).resolve()
+			if candidate.exists():
+				return candidate
+			p = p.parent
+		return (urdf_dir.parent / rest).resolve()  # best guess fallback
+	if filename.startswith("file://"):
+		return Path(filename[len("file://"):]).resolve()
+	return (urdf_dir / filename).resolve()
+
+
 def _extract_mesh_info(geom_elem: ET.Element, urdf_dir: Path) -> Tuple[Path | None, Tuple[float, float, float]]:
 	mesh_elem = geom_elem.find("mesh")
 	if mesh_elem is None:
@@ -213,8 +228,8 @@ def _extract_mesh_info(geom_elem: ET.Element, urdf_dir: Path) -> Tuple[Path | No
 	filename = mesh_elem.attrib.get("filename")
 	if not filename:
 		return None, (1.0, 1.0, 1.0)
-	# Resolve relative path (no package:// for now)
-	mesh_path = (urdf_dir / filename).resolve()
+	# Resolve path (handles package://, file://, and relative paths)
+	mesh_path = _resolve_package_path(filename, urdf_dir)
 	scale_attr = mesh_elem.attrib.get("scale")
 	if scale_attr:
 		parts = [float(x) for x in scale_attr.strip().split()]
@@ -336,7 +351,8 @@ def _worker_instantiate(args: Tuple[GeometrySpec, np.ndarray]) -> Optional[Tuple
 		T_final = T_global @ spec.T_local
 		mesh.apply_transform(T_final)
 		return spec, mesh.vertices, mesh.faces
-	except Exception:
+	except Exception as exc:
+		logger.warning("Worker failed for %s (link=%s): %s", spec.path, spec.link, exc)
 		return None
 
 
