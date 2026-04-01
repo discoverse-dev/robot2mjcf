@@ -7,6 +7,7 @@ import os
 import shutil
 import traceback
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,7 @@ from robot2mjcf.conversion_helpers import (
     load_conversion_metadata,
     resolve_output_path,
 )
+from robot2mjcf.conversion_postprocess import apply_postprocess_pipeline
 from robot2mjcf.geometry import GeomElement, ParsedJointParams, compute_min_z, format_value, rpy_to_quat
 from robot2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
 from robot2mjcf.mjcf_builders import (
@@ -30,23 +32,6 @@ from robot2mjcf.mjcf_builders import (
 )
 from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
 from robot2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
-from robot2mjcf.postprocess.add_appendix import add_appendix
-from robot2mjcf.postprocess.add_backlash import add_backlash
-from robot2mjcf.postprocess.add_floor import add_floor
-from robot2mjcf.postprocess.add_light import add_light
-from robot2mjcf.postprocess.base_joint import fix_base_joint
-from robot2mjcf.postprocess.check_shell import check_shell_meshes
-from robot2mjcf.postprocess.collision_to_stl import collision_to_stl
-from robot2mjcf.postprocess.collisions import update_collisions
-from robot2mjcf.postprocess.convex_collision import convex_collision
-from robot2mjcf.postprocess.convex_decomposition import convex_decomposition
-from robot2mjcf.postprocess.deduplicate_meshes import deduplicate_meshes
-from robot2mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
-from robot2mjcf.postprocess.make_degrees import make_degrees
-from robot2mjcf.postprocess.move_mesh_scale import move_mesh_scale
-from robot2mjcf.postprocess.remove_redundancies import remove_redundancies
-from robot2mjcf.postprocess.split_obj_materials import split_obj_by_materials
-from robot2mjcf.postprocess.update_mesh import update_mesh
 from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
@@ -76,12 +61,13 @@ def convert_urdf_to_mjcf(
     mjcf_path: str | Path | None = None,
     metadata_file: str | Path | None = None,
     *,
-    default_metadata: DefaultJointMetadata | None = None,
+    default_metadata: Mapping[str, DefaultJointMetadata] | None = None,
     actuator_metadata: dict[str, ActuatorMetadata] | None = None,
     appendix_files: list[Path] | None = None,
     max_vertices: int = 1000000,
     collision_only: bool = False,
-    collision_type: bool = True,
+    collision_type: str | None = None,
+    capture_images: bool = False,
 ) -> None:
     """Converts a URDF file to an MJCF file.
 
@@ -95,6 +81,7 @@ def convert_urdf_to_mjcf(
         max_vertices: Maximum number of vertices in the mesh.
         collision_only: If true, use simplified collision geometry without visual appearance for visual representation.
         collision_type: The type of collision geometry to use.
+        capture_images: If true, capture rendered preview images after conversion.
     """
     urdf_path = Path(urdf_path)
     if not urdf_path.exists():
@@ -155,7 +142,6 @@ def convert_urdf_to_mjcf(
         )
 
     # Prepare paths for mesh processing
-    urdf_dir: Path = urdf_path.parent.resolve()
     target_mesh_dir: Path = (mjcf_path.parent / "meshes").resolve()
     target_mesh_dir.mkdir(parents=True, exist_ok=True)
 
@@ -774,67 +760,15 @@ def convert_urdf_to_mjcf(
     # Save the initial MJCF file
     print(f"Saving initial MJCF file to {mjcf_path}")
     save_xml(mjcf_path, ET.ElementTree(mjcf_root))
-    print("Added light...")
-    add_light(mjcf_path)
-    if collision_type == "decomposition":
-        print("Convex decomposition...")
-        convex_decomposition(mjcf_path)
-    elif collision_type == "convex_hull":
-        print("Convex hull generation...")
-        convex_collision(mjcf_path)
-
-    print("Converting collision geometries to STL...")
-    collision_to_stl(mjcf_path)
-    if not collision_only:
-        print("Split OBJ files by materials...")
-        split_obj_by_materials(mjcf_path)  # Split OBJ files by materials
-    print("Updating meshes...")
-    update_mesh(mjcf_path, max_vertices)
-    print("Moving mesh scale attributes...")
-    move_mesh_scale(mjcf_path)
-    print("Checking shell meshes...")
-    check_shell_meshes(mjcf_path)
-    print("Deduplicating mesh assets...")
-    deduplicate_meshes(mjcf_path)
-
-    # Apply post-processing steps
-    if metadata.angle != "radian":
-        assert metadata.angle == "degree", "Only 'radian' and 'degree' are supported."
-        make_degrees(mjcf_path)
-    if metadata.backlash:
-        add_backlash(mjcf_path, metadata.backlash, metadata.backlash_damping)
-    if metadata.freejoint:
-        fix_base_joint(mjcf_path, metadata.freejoint)
-    if metadata.add_floor:
-        add_floor(mjcf_path)
-    if metadata.remove_redundancies:
-        remove_redundancies(mjcf_path)
-    if (collision_geometries := metadata.collision_geometries) is not None:
-        update_collisions(mjcf_path, collision_geometries)
-    if (explicit_contacts := metadata.explicit_contacts) is not None:
-        add_explicit_floor_contacts(
-            mjcf_path,
-            contact_links=explicit_contacts.contact_links,
-            class_name=explicit_contacts.class_name,
-            floor_name=metadata.floor_name,
-        )
-
-    if appendix_files is not None and len(appendix_files) > 0:
-        print("Adding appendix...")
-        for appendix_file in appendix_files:
-            add_appendix(mjcf_path, appendix_file)
-
-    # Capture robot images
-    print("Capturing robot images...")
-    try:
-        from robot2mjcf.postprocess.capture import capture_robot_images
-
-        capture_robot_images(mjcf_path)
-    except Exception as e:
-        logger.warning(f"Failed to capture images: {e}")
-        print(f"⚠️  Image capture failed: {e}")
-        print("   You can manually capture images later using:")
-        print(f"   python -m robot2mjcf.postprocess.capture {mjcf_path}")
+    apply_postprocess_pipeline(
+        mjcf_path,
+        metadata=metadata,
+        collision_only=collision_only,
+        collision_type=collision_type,
+        max_vertices=max_vertices,
+        appendix_files=appendix_files,
+        capture_images=capture_images,
+    )
 
 
 def main() -> None:
@@ -905,6 +839,11 @@ def main() -> None:
         default=200000,
         help="Maximum number of vertices in the mesh.",
     )
+    parser.add_argument(
+        "--capture-images",
+        action="store_true",
+        help="Capture rendered preview images after conversion.",
+    )
     args = parser.parse_args()
     logger.setLevel(args.log_level)
 
@@ -956,6 +895,7 @@ def main() -> None:
         max_vertices=args.max_vertices,
         collision_only=args.collision_only,
         collision_type=args.collision_type,
+        capture_images=args.capture_images,
     )
 
 

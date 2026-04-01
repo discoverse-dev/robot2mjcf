@@ -8,7 +8,7 @@
 - [ ] 让 mypy 真正检查主代码
 - [x] 修正文档与实际 CLI/默认行为不一致的问题
 - [x] 清理 `urdf_format.py` 的 import 副作用
-- [ ] 将自动截图从默认转换路径中解耦
+- [x] 将自动截图从默认转换路径中解耦
 
 ## P1
 
@@ -19,7 +19,7 @@
   - [x] 抽出 joint graph / mimic 解析
   - [ ] 继续拆 body 构建
   - [ ] 继续拆 mesh 复制与资源处理
-  - [ ] 继续拆 postprocess orchestration
+  - [x] 继续拆 postprocess orchestration
 - [ ] 给后处理模块建立统一协议
 - [~] 为高风险模块补测试
   - [x] 为 example 端到端回归建立语义级签名测试
@@ -30,8 +30,8 @@
   - [ ] `postprocess/convex_*`
   - [ ] `postprocess/add_sensors.py`
 - [ ] 修复明显漂移接口
-  - [ ] `mjcf_builders.add_default()` 类型标注
-  - [ ] `model_path_manager --max-depth` 未生效
+  - [x] `mjcf_builders.add_default()` 类型标注
+  - [x] `model_path_manager --max-depth` 未生效
 
 ## P2
 
@@ -52,4 +52,3 @@
   - [ ] 按模块逐步收紧 mypy
   - [ ] `ruff format --check`
   - [ ] 构建产物 smoke install
-

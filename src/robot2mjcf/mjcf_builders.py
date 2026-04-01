@@ -2,6 +2,7 @@
 
 import logging
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from pathlib import Path
 
 from robot2mjcf.materials import Material
@@ -36,7 +37,7 @@ def add_compiler(root: ET.Element) -> None:
 def add_default(
     root: ET.Element,
     metadata: ConversionMetadata,
-    default_metadata: DefaultJointMetadata | None = None,
+    default_metadata: Mapping[str, DefaultJointMetadata] | None = None,
     collision_only: bool = False,
 ) -> None:
     """Add default settings with hierarchical structure for robot components."""
@@ -230,7 +231,7 @@ def add_visual(root: ET.Element) -> None:
     )
 
 
-def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[str, Material] = None) -> None:
+def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[str, Material] | None = None) -> None:
     """Add texture and material assets to the MJCF root.
 
     Args:

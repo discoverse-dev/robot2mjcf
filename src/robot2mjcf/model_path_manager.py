@@ -136,7 +136,7 @@ def set_model_paths(paths: List[Path]) -> str:
         return f'export URDF2MJCF_MODEL_PATH="{path_str}"'
 
 
-def scan_and_add(root_paths: List[Path], append: bool = True, quiet: bool = False) -> None:
+def scan_and_add(root_paths: List[Path], append: bool = True, quiet: bool = False, max_depth: int = 10) -> None:
     """
     Scan directories for description packages and add to environment variable.
 
@@ -160,7 +160,7 @@ def scan_and_add(root_paths: List[Path], append: bool = True, quiet: bool = Fals
 
         if not quiet:
             print(f"Scanning: {root_path}", file=sys.stderr)
-        packages = find_description_packages(root_path)
+        packages = find_description_packages(root_path, max_depth=max_depth)
         if not quiet:
             print(f"  Found {len(packages)} description package(s)", file=sys.stderr)
         all_packages.update(packages)
@@ -309,7 +309,7 @@ Examples:
     # Execute command
     if args.command == "scan":
         root_paths = [Path(p).resolve() for p in args.paths]
-        scan_and_add(root_paths, append=not args.no_append)
+        scan_and_add(root_paths, append=not args.no_append, max_depth=args.max_depth)
 
     elif args.command == "list":
         list_paths()
