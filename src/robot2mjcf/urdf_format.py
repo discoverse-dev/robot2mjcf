@@ -1,21 +1,32 @@
+"""Normalize URDF XML formatting in place."""
+
 import argparse
-import os
 import shutil
 import xml.dom.minidom as minidom
+from pathlib import Path
 
-parser = argparse.ArgumentParser()
-parser.add_argument("urdf_path", type=str)
-args = parser.parse_args()
 
-urdf_path = args.urdf_path
-tmp_urdf_path = urdf_path.replace(".urdf", "_tmp.urdf")
+def format_urdf_file(urdf_path: str | Path) -> None:
+    urdf_path = Path(urdf_path)
+    tmp_urdf_path = urdf_path.with_name(f"{urdf_path.stem}_tmp{urdf_path.suffix}")
 
-if os.path.exists(tmp_urdf_path):
-    shutil.rmtree(tmp_urdf_path)
+    if tmp_urdf_path.exists():
+        tmp_urdf_path.unlink()
 
-xmlDoc = minidom.parse(urdf_path)
+    xml_doc = minidom.parse(str(urdf_path))
 
-with open(tmp_urdf_path, "w") as fp:
-    xmlDoc.writexml(fp)
+    with tmp_urdf_path.open("w") as fp:
+        xml_doc.writexml(fp)
 
-shutil.move(tmp_urdf_path, urdf_path)
+    shutil.move(tmp_urdf_path, urdf_path)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("urdf_path", type=str)
+    args = parser.parse_args()
+    format_urdf_file(args.urdf_path)
+
+
+if __name__ == "__main__":
+    main()

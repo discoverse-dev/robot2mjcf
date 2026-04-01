@@ -11,6 +11,13 @@ from pathlib import Path
 
 import numpy as np
 
+from robot2mjcf.conversion_helpers import (
+    build_joint_maps,
+    collect_mimic_constraints,
+    collect_urdf_materials,
+    load_conversion_metadata,
+    resolve_output_path,
+)
 from robot2mjcf.geometry import GeomElement, ParsedJointParams, compute_min_z, format_value, rpy_to_quat
 from robot2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
 from robot2mjcf.mjcf_builders import (
@@ -21,7 +28,7 @@ from robot2mjcf.mjcf_builders import (
     add_visual,
     add_weld_constraints,
 )
-from robot2mjcf.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
+from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
 from robot2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
 from robot2mjcf.postprocess.add_appendix import add_appendix
 from robot2mjcf.postprocess.add_backlash import add_backlash
@@ -94,22 +101,9 @@ def convert_urdf_to_mjcf(
         raise FileNotFoundError(f"URDF file not found: {urdf_path}")
 
     urdf_dir = urdf_path.parent.resolve()
-    default_output_dir = urdf_dir / "output_mjcf"
-    default_mjcf_path = default_output_dir / "robot.xml"
-
-    if mjcf_path is not None:
-        mjcf_path = Path(mjcf_path)
-        # Reject output in the same directory as the URDF file
-        if mjcf_path.parent.resolve() == urdf_dir:
-            print(
-                "\033[33m"
-                f"Warning: output file cannot be in the same directory as the URDF file ({urdf_dir}). "
-                f"Using default output path: {default_mjcf_path}"
-                "\033[0m"
-            )
-            mjcf_path = default_mjcf_path
-    else:
-        mjcf_path = default_mjcf_path
+    mjcf_path, output_warning = resolve_output_path(urdf_path, mjcf_path)
+    if output_warning is not None:
+        print(f"\033[33m{output_warning}\033[0m")
 
     mjcf_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -118,15 +112,7 @@ def convert_urdf_to_mjcf(
     if robot is None:
         raise ValueError("URDF file has no root element")
 
-    if metadata_file is not None:
-        try:
-            with open(metadata_file, "r") as f:
-                metadata = ConversionMetadata.model_validate_json(f.read())
-        except Exception as e:
-            logger.warning("Failed to load metadata from %s: %s", metadata_file, e)
-            metadata = ConversionMetadata()
-    else:
-        metadata = ConversionMetadata()
+    metadata = load_conversion_metadata(metadata_file)
 
     if actuator_metadata is None:
         missing = []
@@ -136,42 +122,7 @@ def convert_urdf_to_mjcf(
         actuator_metadata = _get_empty_actuator_metadata(robot)
     assert actuator_metadata is not None
 
-    # Parse materials from URDF - both from root level and from link visuals
-    materials: dict[str, str] = {}
-
-    # Get materials defined at the robot root level
-    for material in robot.findall("material"):
-        name = material.attrib.get("name")
-        if name is None:
-            continue
-        elif name == "":
-            logger.warning("Material name is empty, using default_material")
-            material.attrib["name"] = "default_material"
-
-        color = material.find("color")
-        if color is not None:
-            rgba = color.attrib.get("rgba")
-            if rgba is not None:
-                materials[name] = rgba
-
-    if not collision_only:
-        # Get materials defined in link visual elements
-        for link in robot.findall("link"):
-            for visual in link.findall("visual"):
-                visual_material = visual.find("material")
-                if visual_material is None:
-                    continue
-                elif visual_material.attrib.get("name") == "":
-                    visual_material.attrib["name"] = "default_material"
-
-                name = visual_material.attrib.get("name")
-                if name is None:
-                    continue
-                color = visual_material.find("color")
-                if color is not None:
-                    rgba = color.attrib.get("rgba")
-                    if rgba is not None:
-                        materials[name] = rgba
+    materials = collect_urdf_materials(robot, collision_only)
 
     # Create a new MJCF tree root element.
     mjcf_root: ET.Element = ET.Element("mujoco", attrib={"model": robot.attrib.get("name", "converted_robot")})
@@ -185,23 +136,7 @@ def convert_urdf_to_mjcf(
     # Creates the worldbody element.
     worldbody = ET.SubElement(mjcf_root, "worldbody")
 
-    # Build mappings for URDF links and joints.
-    link_map: dict[str, ET.Element] = {link.attrib["name"]: link for link in robot.findall("link")}
-    parent_map: dict[str, list[tuple[str, ET.Element]]] = {}
-    child_joints: dict[str, ET.Element] = {}
-    for joint in robot.findall("joint"):
-        parent_elem = joint.find("parent")
-        child_elem = joint.find("child")
-        if parent_elem is None or child_elem is None:
-            logger.warning("Joint missing parent or child element")
-            continue
-        parent_name = parent_elem.attrib.get("link", "")
-        child_name = child_elem.attrib.get("link", "")
-        if not parent_name or not child_name:
-            logger.warning("Joint missing parent or child link name")
-            continue
-        parent_map.setdefault(parent_name, []).append((child_name, joint))
-        child_joints[child_name] = joint
+    link_map, parent_map, child_joints = build_joint_maps(robot)
 
     all_links = set(link_map.keys())
     child_links = set(child_joints.keys())
@@ -213,22 +148,11 @@ def convert_urdf_to_mjcf(
     # These dictionaries are used to collect mesh assets and actuator joints.
     mesh_assets: dict[str, str] = {}
     actuator_joints: list[ParsedJointParams] = []
-    mimic_constraints: list[tuple[str, str, float, float]] = []  # (mimicked_joint, mimicking_joint, multiplier, offset)
-
-    # Parse mimic joints from URDF
-    for joint in robot.findall("joint"):
-        mimic_elem = joint.find("mimic")
-        if mimic_elem is not None:
-            joint_name = joint.attrib.get("name")
-            mimicked_joint = mimic_elem.attrib.get("joint")
-            multiplier = float(mimic_elem.attrib.get("multiplier", "1.0"))
-            offset = float(mimic_elem.attrib.get("offset", "0.0"))
-
-            if joint_name and mimicked_joint:
-                mimic_constraints.append((mimicked_joint, joint_name, multiplier, offset))
-                logger.info(
-                    f"Found mimic constraint: {joint_name} mimics {mimicked_joint} with multiplier={multiplier}, offset={offset}"
-                )
+    mimic_constraints = collect_mimic_constraints(robot)
+    for mimicked_joint, joint_name, multiplier, offset in mimic_constraints:
+        logger.info(
+            f"Found mimic constraint: {joint_name} mimics {mimicked_joint} with multiplier={multiplier}, offset={offset}"
+        )
 
     # Prepare paths for mesh processing
     urdf_dir: Path = urdf_path.parent.resolve()

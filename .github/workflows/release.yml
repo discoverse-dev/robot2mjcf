@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/urdf-to-mjcf/${{ github.ref_name }}
+      url: https://test.pypi.org/project/robot2mjcf/
     permissions:
       id-token: write
       contents: read

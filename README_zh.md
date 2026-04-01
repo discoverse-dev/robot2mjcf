@@ -42,7 +42,7 @@ robot2mjcf <urdf_path> [options]
 - `urdf_path`: 输入的URDF文件路径
 
 #### 可选参数
-- `-o, --output`: 输出MJCF文件路径 (默认: 与输入文件同名但扩展名为.mjcf)
+- `-o, --output`: 输出MJCF文件路径 (默认: URDF 所在目录下的 `output_mjcf/robot.xml`)
 - `-m, --metadata`: 包含转换元数据的JSON文件路径 (关节参数和传感器配置)
 - `-dm, --default-metadata`: 默认元数据JSON文件，可指定多个文件，后面的文件会覆盖前面的设置
 - `-am, --actuator-metadata`: 执行器元数据JSON文件，可指定多个文件，后面的文件会覆盖前面的设置

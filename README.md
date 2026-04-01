@@ -42,13 +42,12 @@ robot2mjcf <urdf_path> [options]
 - `urdf_path`: Path to the input URDF file
 
 #### Optional Arguments
-- `-o, --output`: Output MJCF file path (default: same as input file but with .mjcf extension)
+- `-o, --output`: Output MJCF file path (default: `output_mjcf/robot.xml` under the URDF directory)
 - `-m, --metadata`: Path to JSON file containing conversion metadata (joint parameters and sensor configurations)
 - `-dm, --default-metadata`: Default metadata JSON files, multiple files can be specified, later files override earlier settings
 - `-am, --actuator-metadata`: Actuator metadata JSON files, multiple files can be specified, later files override earlier settings
 - `-a, --appendix`: Appendix XML files, multiple files can be specified and applied in order
 - `--collision-only`: Use collision geometry only without visual appearance for visual representation
-- `--no-convex-decompose`: Disable mesh convex decomposition processing
 - `--collision-type`: Collision type(mesh, convex decomposition, convex hull)
 - `--log-level`: Logging level (default: INFO level)
 - `--max-vertices`: Maximum number of vertices in the mesh (default: 200000)
@@ -149,7 +148,7 @@ These paths will be searched when resolving `package://` URIs and locating mesh 
 
 This project builds upon these excellent open-source projects:
 
-- **[kscalelabs/robot2mjcf](https://github.com/kscalelabs/robot2mjcf)**: Core conversion framework
+- **[kscalelabs/urdf2mjcf](https://github.com/kscalelabs/urdf2mjcf)**: Core conversion framework
 - **[kevinzakka/obj2mjcf](https://github.com/kevinzakka/obj2mjcf)**: OBJ file processing inspiration
 
 Thanks to the original authors for their outstanding contributions!
