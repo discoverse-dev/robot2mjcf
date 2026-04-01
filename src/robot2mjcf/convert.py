@@ -90,9 +90,27 @@ def convert_urdf_to_mjcf(
         collision_type: The type of collision geometry to use.
     """
     urdf_path = Path(urdf_path)
-    mjcf_path = Path(mjcf_path) if mjcf_path is not None else urdf_path.with_suffix(".mjcf")
     if not urdf_path.exists():
         raise FileNotFoundError(f"URDF file not found: {urdf_path}")
+
+    urdf_dir = urdf_path.parent.resolve()
+    default_output_dir = urdf_dir / "output_mjcf"
+    default_mjcf_path = default_output_dir / "robot.xml"
+
+    if mjcf_path is not None:
+        mjcf_path = Path(mjcf_path)
+        # Reject output in the same directory as the URDF file
+        if mjcf_path.parent.resolve() == urdf_dir:
+            print(
+                "\033[33m"
+                f"Warning: output file cannot be in the same directory as the URDF file ({urdf_dir}). "
+                f"Using default output path: {default_mjcf_path}"
+                "\033[0m"
+            )
+            mjcf_path = default_mjcf_path
+    else:
+        mjcf_path = default_mjcf_path
+
     mjcf_path.parent.mkdir(parents=True, exist_ok=True)
 
     urdf_tree = ET.parse(urdf_path)
