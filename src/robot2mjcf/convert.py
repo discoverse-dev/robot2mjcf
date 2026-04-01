@@ -565,10 +565,10 @@ def convert_urdf_to_mjcf(
     for actuator_joint in actuator_joints:
         # The class name is the actuator type
         attrib: dict[str, str] = {"joint": actuator_joint.name}
-        actuator_type_value = "motor"
+        actuator_type_value: str = "motor"
         if actuator_joint.name in actuator_metadata:
-            if actuator_metadata[actuator_joint.name].actuator_type is not None:
-                actuator_type_value = actuator_metadata[actuator_joint.name].actuator_type
+            if (actuator_type := actuator_metadata[actuator_joint.name].actuator_type) is not None:
+                actuator_type_value = actuator_type
                 logger.info("Joint %s assigned to class: %s", actuator_joint.name, actuator_type_value)
 
             if actuator_metadata[actuator_joint.name].joint_class is not None:
@@ -580,14 +580,10 @@ def convert_urdf_to_mjcf(
                 attrib["kp"] = str(actuator_metadata[actuator_joint.name].kp)
             if actuator_metadata[actuator_joint.name].kv is not None:
                 attrib["kv"] = str(actuator_metadata[actuator_joint.name].kv)
-            if actuator_metadata[actuator_joint.name].ctrlrange is not None:
-                attrib["ctrlrange"] = (
-                    f"{actuator_metadata[actuator_joint.name].ctrlrange[0]} {actuator_metadata[actuator_joint.name].ctrlrange[1]}"
-                )
-            if actuator_metadata[actuator_joint.name].forcerange is not None:
-                attrib["forcerange"] = (
-                    f"{actuator_metadata[actuator_joint.name].forcerange[0]} {actuator_metadata[actuator_joint.name].forcerange[1]}"
-                )
+            if (ctrlrange := actuator_metadata[actuator_joint.name].ctrlrange) is not None:
+                attrib["ctrlrange"] = f"{ctrlrange[0]} {ctrlrange[1]}"
+            if (forcerange := actuator_metadata[actuator_joint.name].forcerange) is not None:
+                attrib["forcerange"] = f"{forcerange[0]} {forcerange[1]}"
             if actuator_metadata[actuator_joint.name].gear is not None:
                 attrib["gear"] = str(actuator_metadata[actuator_joint.name].gear)
 
@@ -618,7 +614,7 @@ def convert_urdf_to_mjcf(
     if mimic_constraints:
         equality_elem = ET.SubElement(mjcf_root, "equality")
         for mimicked_joint, mimicking_joint, multiplier, offset in mimic_constraints:
-            joint_attrib = {"joint1": mimicked_joint, "joint2": mimicking_joint}
+            joint_attrib: dict[str, str] = {"joint1": mimicked_joint, "joint2": mimicking_joint}
 
             # Generate polycoef attribute for MuJoCo equality constraint
             # MuJoCo polycoef format: "offset multiplier 0 0 0" for linear relationship
@@ -708,8 +704,8 @@ def convert_urdf_to_mjcf(
 
         geom_mesh_to_remove = []
         for geom in mjcf_root.iter("geom"):
-            mesh_name = geom.attrib.get("mesh")
-            if mesh_name and mesh_name in non_existing_meshes:
+            geom_mesh_name = geom.attrib.get("mesh")
+            if geom_mesh_name and geom_mesh_name in non_existing_meshes:
                 geom_mesh_to_remove.append(geom)
 
         # 修复：mjcf_root.remove(geom) 只适用于直接子元素，嵌套需找到 parent
@@ -752,10 +748,10 @@ def convert_urdf_to_mjcf(
     logger.info("Auto-detected base offset: %s (min z = %s)", computed_offset, min_z)
 
     # Adjust the robot body position based on computed offset
-    body_pos = robot_body.attrib.get("pos", "0 0 0")
-    body_pos = [float(x) for x in body_pos.split()]
+    body_pos_str = robot_body.attrib.get("pos", "0 0 0")
+    body_pos = [float(x) for x in body_pos_str.split()]
     body_pos[2] += computed_offset
-    robot_body.attrib["pos"] = " ".join(f"{format_value(x)}" for x in body_pos)
+    robot_body.attrib["pos"] = " ".join(format_value(x) for x in body_pos)
 
     # Save the initial MJCF file
     print(f"Saving initial MJCF file to {mjcf_path}")
@@ -848,7 +844,7 @@ def main() -> None:
     logger.setLevel(args.log_level)
 
     # Load default metadata
-    default_metadata = {}
+    default_metadata: dict[str, DefaultJointMetadata] = {}
     if args.default_metadata is not None and len(args.default_metadata) > 0:
         for metadata_file in args.default_metadata:
             try:
@@ -862,11 +858,10 @@ def main() -> None:
                 traceback.print_exc()
                 exit(1)
 
-    if not default_metadata:
-        default_metadata = None
+    default_metadata_arg = default_metadata or None
 
     # Load actuator metadata
-    actuator_metadata = {}
+    actuator_metadata: dict[str, ActuatorMetadata] = {}
     if args.actuator_metadata is not None and len(args.actuator_metadata) > 0:
         for metadata_file in args.actuator_metadata:
             try:
@@ -880,15 +875,14 @@ def main() -> None:
                 traceback.print_exc()
                 exit(1)
 
-    if not actuator_metadata:
-        actuator_metadata = None
+    actuator_metadata_arg = actuator_metadata or None
 
     convert_urdf_to_mjcf(
         urdf_path=args.urdf_path,
         mjcf_path=args.output,
         metadata_file=args.metadata,
-        default_metadata=default_metadata,
-        actuator_metadata=actuator_metadata,
+        default_metadata=default_metadata_arg,
+        actuator_metadata=actuator_metadata_arg,
         appendix_files=[Path(appendix_file) for appendix_file in args.appendix]
         if args.appendix is not None and len(args.appendix) > 0
         else None,

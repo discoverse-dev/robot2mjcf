@@ -105,9 +105,3 @@ warn_return_any = false
 warn_unused_configs = false
 disallow_untyped_defs = false
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = [
-    "robot2mjcf.*",
-]
-ignore_errors = true

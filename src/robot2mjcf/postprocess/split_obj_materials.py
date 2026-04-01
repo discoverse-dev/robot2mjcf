@@ -6,6 +6,7 @@ import os
 import traceback
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Any
 
 import trimesh
 
@@ -16,7 +17,7 @@ from robot2mjcf.utils import save_xml
 logger = logging.getLogger(__name__)
 
 
-def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[str, Material]:
+def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = None) -> dict[str, Material]:
     """Process MTL materials from OBJ file and split by materials.
 
     Args:
@@ -29,7 +30,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[
     if files_to_delete is None:
         files_to_delete = []
 
-    materials = {}
+    materials: dict[str, Material] = {}
 
     if not obj_file.exists():
         return materials
@@ -64,7 +65,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[
         lines = [line.strip() for line in lines]
 
         # Split at each new material definition
-        sub_mtls = []
+        sub_mtls: list[list[str]] = []
         for line in lines:
             if line.startswith("newmtl"):
                 sub_mtls.append([])
@@ -115,10 +116,15 @@ def process_obj_materials(obj_file: Path, files_to_delete: list = None) -> dict[
                         logger.warning(
                             f"Submesh: {submesh_name.name}, Geometry {material_name} does not have texture visuals"
                         )
-                    mtl_file = f"{obj_stem}_{i}_{material_name}.mtl"
-                    geom.export(submesh_name.as_posix(), include_texture=True, header=None, mtl_name=mtl_file)
+                    submesh_mtl_file = f"{obj_stem}_{i}_{material_name}.mtl"
+                    export_kwargs: dict[str, Any] = {
+                        "include_texture": True,
+                        "header": None,
+                        "mtl_name": submesh_mtl_file,
+                    }
+                    geom.export(submesh_name.as_posix(), **export_kwargs)
                     # Mark files for deletion instead of deleting immediately
-                    files_to_delete.append(obj_target_dir / mtl_file)
+                    files_to_delete.append(obj_target_dir / submesh_mtl_file)
                     logger.info(f"Saved submesh: {submesh_name.name} (material: {material_name})")
                 # Mark original files for deletion
                 files_to_delete.append(obj_file)
@@ -146,7 +152,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     root = tree.getroot()
 
     # Track files to delete at the end
-    files_to_delete = []
+    files_to_delete: list[Path] = []
 
     # Get mesh directory
     compiler = root.find("compiler")
@@ -166,7 +172,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         return
 
     # First, convert DAE files to OBJ files
-    dae_meshes = {}
+    dae_meshes: dict[str, str] = {}
     for mesh_elem in asset.findall("mesh"):
         mesh_name = mesh_elem.get("name", "")
         mesh_file = mesh_elem.get("file", "")
@@ -225,7 +231,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             return
 
     # Collect all OBJ mesh assets (including converted ones)
-    obj_meshes = {}
+    obj_meshes: dict[str, str] = {}
     for mesh_elem in asset.findall("mesh"):
         mesh_name = mesh_elem.get("name", "")
         mesh_file = mesh_elem.get("file", "")
@@ -240,10 +246,10 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         return
 
     # Process each OBJ file
-    all_mtl_materials = {}
-    mesh_splits = {}  # mesh_name -> [(submesh_name, submesh_file), ...]
-    mesh_single_materials = {}  # mesh_name -> material_name (for single mesh with multiple materials)
-    processed_obj_files = {}  # obj_file_path -> (obj_materials, split_info, single_material)
+    all_mtl_materials: dict[str, Material] = {}
+    mesh_splits: dict[str, list[tuple[str, str]]] = {}
+    mesh_single_materials: dict[str, str] = {}
+    processed_obj_files: dict[Path, tuple[dict[str, Material], list[tuple[str, str]] | None, str | None]] = {}
 
     for mesh_name, mesh_file in obj_meshes.items():
         obj_file_path = mesh_dir / mesh_file
@@ -278,7 +284,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             submeshes = list(split_dir.glob(f"{obj_stem}_*.obj"))
             if submeshes:
                 # Found split meshes
-                submesh_info = []
+                submesh_info: list[tuple[str, str]] = []
                 # Extract link prefix from mesh_name if it exists
                 # mesh_name format: linkname_meshstem or just meshstem
                 link_prefix = ""
@@ -359,14 +365,14 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
 
     # Update geom elements to use split meshes or assign materials
     for body in root.findall(".//body"):
-        geoms_to_update = []
-        geoms_to_assign_material = []
+        geoms_to_update: list[tuple[ET.Element, str]] = []
+        geoms_to_assign_material: list[tuple[ET.Element, str]] = []
         for geom in body.findall("geom"):
             if geom.get("class") == "visual" and geom.get("type") == "mesh":
                 mesh_ref = geom.get("mesh")
-                if mesh_ref in mesh_splits:
+                if mesh_ref and mesh_ref in mesh_splits:
                     geoms_to_update.append((geom, mesh_ref))
-                elif mesh_ref in mesh_single_materials:
+                elif mesh_ref and mesh_ref in mesh_single_materials:
                     geoms_to_assign_material.append((geom, mesh_ref))
 
         # First, assign materials to single meshes that have multiple materials but weren't split
@@ -443,24 +449,24 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     # And remove unused original OBJ meshes that were split
 
     # Collect all used mesh names from geoms
-    used_meshes = set()
-    collision_meshes = set()
+    used_meshes: set[str] = set()
+    collision_meshes: set[str] = set()
     for body in root.findall(".//body"):
         for geom in body.findall("geom"):
             if geom.get("type") == "mesh":
-                mesh_name = geom.get("mesh")
-                if mesh_name:
-                    used_meshes.add(mesh_name)
-                if geom.get("class") == "collision":
-                    collision_meshes.add(mesh_name)
+                geom_mesh_name = geom.get("mesh")
+                if geom_mesh_name:
+                    used_meshes.add(geom_mesh_name)
+                if geom_mesh_name and geom.get("class") == "collision":
+                    collision_meshes.add(geom_mesh_name)
 
     # Remove unused OBJ meshes that were split
     split_original_meshes = set(mesh_splits.keys())
 
     # Collect all existing elements in asset section
-    existing_materials = []
-    existing_meshes = []
-    other_elements = []
+    existing_materials: list[ET.Element] = []
+    existing_meshes: list[ET.Element] = []
+    other_elements: list[ET.Element] = []
 
     for child in list(asset):
         if child.tag == "material":
@@ -482,11 +488,11 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         asset.remove(child)
 
     # Re-add elements in the desired order: materials first, then meshes, then others
-    for material in existing_materials:
-        asset.append(material)
+    for material_elem in existing_materials:
+        asset.append(material_elem)
 
-    for mesh in existing_meshes:
-        asset.append(mesh)
+    for mesh_elem in existing_meshes:
+        asset.append(mesh_elem)
 
     for other in other_elements:
         asset.append(other)

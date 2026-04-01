@@ -22,7 +22,7 @@ def sort_body_elements(element: ET.Element) -> None:
         order = ["inertial", "joint", "geom", "body"]
 
         # Group children by tag
-        children_by_tag = {}
+        children_by_tag: dict[str, list[ET.Element]] = {}
         for child in element:
             tag = child.tag
             if tag not in children_by_tag:

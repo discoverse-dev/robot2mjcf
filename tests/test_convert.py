@@ -150,15 +150,23 @@ def assert_example_signature(out_path: Path, example_name: str) -> None:
 
     assert root.attrib.get("model") == expected["model"]
     assert sorted(elem.attrib["name"] for elem in root.iter("body") if "name" in elem.attrib) == expected["body_names"]
-    assert sorted(elem.attrib["name"] for elem in root.iter("joint") if "name" in elem.attrib) == expected["joint_names"]
-    assert sorted(
-        elem.attrib["name"] for elem in (list(actuator) if actuator is not None else []) if "name" in elem.attrib
-    ) == expected["actuator_names"]
-    assert sorted(
-        (elem.attrib.get("joint1"), elem.attrib.get("joint2"))
-        for elem in (list(equality) if equality is not None else [])
-        if elem.tag == "joint"
-    ) == expected["equality_pairs"]
+    assert (
+        sorted(elem.attrib["name"] for elem in root.iter("joint") if "name" in elem.attrib) == expected["joint_names"]
+    )
+    assert (
+        sorted(
+            elem.attrib["name"] for elem in (list(actuator) if actuator is not None else []) if "name" in elem.attrib
+        )
+        == expected["actuator_names"]
+    )
+    assert (
+        sorted(
+            (elem.attrib.get("joint1"), elem.attrib.get("joint2"))
+            for elem in (list(equality) if equality is not None else [])
+            if elem.tag == "joint"
+        )
+        == expected["equality_pairs"]
+    )
 
     assert len(list(root.iter("body"))) == expected["xml_counts"]["body"]
     assert len(list(root.iter("geom"))) == expected["xml_counts"]["geom"]

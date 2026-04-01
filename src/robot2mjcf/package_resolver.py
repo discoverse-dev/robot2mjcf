@@ -7,8 +7,9 @@ ROS versions (ROS1/ROS2) and operating systems (Linux/Windows/macOS).
 import logging
 import os
 import platform
+from collections.abc import Sequence
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +216,9 @@ class PackageResolver:
 
         return None
 
-    def _find_package_by_path_pattern(self, package_name: str, search_paths: List[Path] = []) -> Optional[Path]:
+    def _find_package_by_path_pattern(
+        self, package_name: str, search_paths: Sequence[Path] | None = None
+    ) -> Optional[Path]:
         """Find package by searching common ROS workspace patterns."""
         search_paths = self._add_default_search_paths(search_paths)
 
@@ -251,7 +254,7 @@ class PackageResolver:
 
         return None
 
-    def _get_model_paths_from_env(self) -> List[Path]:
+    def _get_model_paths_from_env(self) -> list[Path]:
         """
         Get model paths from environment variable.
 
@@ -282,15 +285,17 @@ class PackageResolver:
 
         return paths
 
-    def _add_default_search_paths(self, search_paths: List[Path] = []) -> List[Path]:
+    def _add_default_search_paths(self, search_paths: Sequence[Path] | None = None) -> list[Path]:
         """Get default search paths based on operating system and environment."""
+        normalized_paths = list(search_paths) if search_paths is not None else []
+
         # Add paths from environment variable first (highest priority after explicit search_paths)
         env_paths = self._get_model_paths_from_env()
-        search_paths.extend(env_paths)
+        normalized_paths.extend(env_paths)
 
         # Current working directory and parent directories (for development)
         current_path = Path.cwd()
-        search_paths.extend(
+        normalized_paths.extend(
             [
                 current_path,
                 current_path.parent,
@@ -299,15 +304,17 @@ class PackageResolver:
         )
 
         # Remove duplicates and non-existent paths
-        unique_paths = []
-        for path in search_paths:
+        unique_paths: list[Path] = []
+        for path in normalized_paths:
             if path and path not in unique_paths:
                 unique_paths.append(path)
 
         logger.debug(f"Default search paths: {unique_paths}")
         return unique_paths
 
-    def resolve_package_path(self, package_name: str, search_paths: List[Union[str, Path]] = []) -> Optional[Path]:
+    def resolve_package_path(
+        self, package_name: str, search_paths: Sequence[str | Path] | None = None
+    ) -> Optional[Path]:
         """
         Resolve the path to a ROS package using multiple strategies.
 
@@ -341,7 +348,7 @@ class PackageResolver:
                 logger.debug(f"ROS2 ament_index failed for package '{package_name}': {e}")
 
         # Strategy 3: Search by path patterns
-        converted_search_paths = []
+        converted_search_paths: list[Path] = []
         if search_paths:
             converted_search_paths = [Path(p) for p in search_paths]
 
@@ -352,7 +359,9 @@ class PackageResolver:
         logger.warning(f"Could not resolve package path for: {package_name} in {converted_search_paths}")
         return None
 
-    def resolve_package_resource(self, package_url: str, search_paths: List[Union[str, Path]] = []) -> Optional[Path]:
+    def resolve_package_resource(
+        self, package_url: str, search_paths: Sequence[str | Path] | None = None
+    ) -> Optional[Path]:
         """
         Resolve a package:// URL to an absolute file path.
 
@@ -396,7 +405,7 @@ class PackageResolver:
 _default_resolver = PackageResolver()
 
 
-def resolve_package_path(package_name: str, search_paths: List[Union[str, Path]] = []) -> Optional[Path]:
+def resolve_package_path(package_name: str, search_paths: Sequence[str | Path] | None = None) -> Optional[Path]:
     """
     Convenience function to resolve a ROS package path.
 
@@ -410,7 +419,7 @@ def resolve_package_path(package_name: str, search_paths: List[Union[str, Path]]
     return _default_resolver.resolve_package_path(package_name, search_paths)
 
 
-def resolve_package_resource(package_url: str, search_paths: List[Union[str, Path]] = []) -> Optional[Path]:
+def resolve_package_resource(package_url: str, search_paths: Sequence[str | Path] | None = None) -> Optional[Path]:
     """
     Convenience function to resolve a package:// URL to an absolute file path.
 
@@ -424,7 +433,7 @@ def resolve_package_resource(package_url: str, search_paths: List[Union[str, Pat
     return _default_resolver.resolve_package_resource(package_url, search_paths)
 
 
-def find_workspace_from_path(start_path: Union[str, Path]) -> Optional[Path]:
+def find_workspace_from_path(start_path: str | Path) -> Optional[Path]:
     """
     Find the ROS workspace root by traversing up from the given path.
 

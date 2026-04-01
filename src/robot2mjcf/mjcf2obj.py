@@ -22,7 +22,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, TypedDict
 
 import numpy as np
 
@@ -33,6 +33,12 @@ except ImportError as exc:  # pragma: no cover - dependency error path
 
 
 logger = logging.getLogger(__name__)
+
+
+class BodyGeom(TypedDict):
+    geom_name: str
+    mesh_path: Path
+    material: str
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +189,7 @@ def _material_properties(
     asset_props: Dict[str, str],
     texture_assets: Dict[str, Dict[str, str]],
 ) -> Dict[str, str]:
-    props = {
+    props: Dict[str, str] = {
         "rgba": asset_props.get("rgba", "0.8 0.8 0.8 1.0"),
         "specular": asset_props.get("specular", "0.0"),
         "shininess": asset_props.get("shininess", "0.4"),
@@ -191,7 +197,9 @@ def _material_properties(
     }
     texture_name = asset_props.get("texture")
     if texture_name and texture_name in texture_assets:
-        props["texture_file"] = texture_assets[texture_name].get("file")
+        texture_file = texture_assets[texture_name].get("file")
+        if texture_file is not None:
+            props["texture_file"] = texture_file
     return props
 
 
@@ -255,10 +263,10 @@ def _collect_body_geoms(
     default_material_prefix: str,
     material_defs: Dict[str, Dict[str, str]],
     material_export_names: Dict[str, str],
-) -> Tuple[str, List[Dict[str, object]]]:
+) -> Tuple[str, List[BodyGeom]]:
     body_name = body_elem.attrib.get("name") or "unnamed_body"
 
-    geoms: List[Dict[str, object]] = []
+    geoms: List[BodyGeom] = []
 
     for geom in body_elem.findall("geom"):
         geom_type = geom.attrib.get("type", "mesh")
@@ -336,7 +344,7 @@ def _export_body(
 
         # 保持原有的文件路径结构：将导出文件放在 output_dir 下，
         # 并附加所有来源 mesh 文件在 mesh_root 下的共同相对子目录。
-        source_paths: List[Path] = [g["mesh_path"] for g in geoms]  # type: ignore[index]
+        source_paths: List[Path] = [g["mesh_path"] for g in geoms]
         common_rel = _common_relative_dir(source_paths, mesh_root)
         target_dir = (output_dir / common_rel).resolve()
 
@@ -358,7 +366,8 @@ def _export_body(
             vertices.extend(map(tuple, geom_vertices))
 
             for face in geom_faces:
-                faces.append(tuple(int(idx) + 1 + vertex_offset for idx in face))
+                face0, face1, face2 = (int(idx) + 1 + vertex_offset for idx in face)
+                faces.append((face0, face1, face2))
                 face_materials.append(str(geom["material"]))
 
         if vertices and faces:

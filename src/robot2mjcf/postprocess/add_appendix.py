@@ -90,8 +90,8 @@ def validate_equality_constraints(equality_element: ET.Element, available_joints
     Returns:
         True if all constraints are valid, False otherwise.
     """
-    valid_constraints = []
-    invalid_constraints = []
+    valid_constraints: list[tuple[str, str | None]] = []
+    invalid_constraints: list[tuple[str | None, str | None]] = []
 
     for joint_elem in equality_element.findall("joint"):
         joint1 = joint_elem.get("joint1")
@@ -107,6 +107,7 @@ def validate_equality_constraints(equality_element: ET.Element, available_joints
             invalid_constraints.append((joint1, joint2))
             continue
 
+        assert joint1 is not None
         valid_constraints.append((joint1, joint2))
 
     if invalid_constraints:

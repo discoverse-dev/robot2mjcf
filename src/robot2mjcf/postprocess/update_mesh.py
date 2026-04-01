@@ -8,10 +8,27 @@ import logging
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import TypedDict
+
+import numpy as np
 
 from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
+
+
+class GeomMergeInfo(TypedDict):
+    element: ET.Element
+    mesh_name: str
+    pos: np.ndarray
+    quat: np.ndarray | None
+    euler: np.ndarray | None
+    material_attribs: list[tuple[str, str]]
+
+
+class TransformedMesh(TypedDict):
+    vertices: np.ndarray
+    faces: np.ndarray
 
 
 def simplify_mesh_assets(mjcf_path: str | Path, max_vertices: int) -> None:
@@ -20,6 +37,7 @@ def simplify_mesh_assets(mjcf_path: str | Path, max_vertices: int) -> None:
     Args:
         root: The root element of the MJCF file.
     """
+    mjcf_path = Path(mjcf_path)
     tree = ET.parse(mjcf_path)
     root = tree.getroot()
 
@@ -135,7 +153,7 @@ def remove_unused_mesh(mjcf_path: str | Path) -> None:
 
     # 收集要删除的mesh和对应文件
     meshes_to_remove = []
-    mesh_files_to_remove = []
+    mesh_files_to_remove: list[Path] = []
 
     for mesh in asset.findall("mesh"):
         mesh_name = mesh.attrib.get("name")
@@ -203,12 +221,12 @@ def remove_unused_mesh(mjcf_path: str | Path) -> None:
                     mesh_files_to_remove.append(mesh_file_path)
 
     # 删除文件
-    deleted_files = []
+    deleted_files: list[Path] = []
     for file_path in mesh_files_to_remove:
         try:
             if file_path.exists():
                 file_path.unlink()
-                deleted_files.append(str(file_path))
+                deleted_files.append(file_path)
                 logger.info(f"已删除文件: {file_path}")
         except Exception as e:
             logger.error(f"删除文件 {file_path} 时出错: {e}")
@@ -226,8 +244,8 @@ def remove_unused_mesh(mjcf_path: str | Path) -> None:
 
     if deleted_files:
         logger.info("删除的文件列表:")
-        for file_path in deleted_files:
-            logger.info(f"  - {file_path}")
+        for deleted_file in deleted_files:
+            logger.info(f"  - {deleted_file}")
 
 
 def merge_materials(mjcf_path: str | Path) -> None:
@@ -495,11 +513,10 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
         logger.warning("No asset element found in MJCF file")
         return
 
-    import numpy as np
     import pymeshlab
 
     # 构建mesh名称到文件路径的映射
-    mesh_name_to_file = {}
+    mesh_name_to_file: dict[str, Path] = {}
     for mesh in asset.findall("mesh"):
         mesh_name = mesh.attrib.get("name")
         mesh_file = mesh.attrib.get("file")
@@ -516,7 +533,7 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
         body_name = body.attrib.get("name", "unnamed")
 
         # 收集该body下所有的geom，按材质属性分组
-        material_to_geoms = {}  # 材质签名 -> [(geom_element, mesh_name, pose)]
+        material_to_geoms: dict[str, list[GeomMergeInfo]] = {}
 
         for geom in list(body.findall("geom")):
             if geom.attrib.get("type") != "mesh":
@@ -528,7 +545,7 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
                 continue
 
             # 创建材质属性签名
-            material_attribs = []
+            material_attribs: list[tuple[str, str]] = []
             for key in ["material", "rgba", "class"]:
                 if key in geom.attrib:
                     material_attribs.append((key, geom.attrib[key]))
@@ -563,30 +580,30 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
 
             try:
                 # 创建合并后的mesh - 先加载所有mesh并应用变换
-                all_transformed_meshes = []
+                all_transformed_meshes: list[TransformedMesh] = []
 
                 for i, geom_info in enumerate(geom_list):
                     mesh_name = geom_info["mesh_name"]
-                    mesh_file = mesh_name_to_file.get(mesh_name)
+                    mesh_path = mesh_name_to_file.get(mesh_name)
 
-                    if not mesh_file or not mesh_file.exists():
+                    if mesh_path is None or not mesh_path.exists():
                         logger.warning(f"  Mesh文件不存在: {mesh_name}")
                         continue
 
                     # 加载mesh
                     temp_ms = pymeshlab.MeshSet()
-                    temp_ms.load_new_mesh(str(mesh_file))
+                    temp_ms.load_new_mesh(str(mesh_path))
 
                     # 应用变换
-                    pos = geom_info["pos"]
+                    pos_vec = geom_info["pos"]
 
                     # 构建旋转矩阵
                     if geom_info["euler"] is not None:
                         # 从欧拉角构建旋转矩阵 (XYZ顺序)
-                        euler = geom_info["euler"]
+                        euler_vec = geom_info["euler"]
                         # MuJoCo使用的是extrinsic XYZ (相当于intrinsic ZYX)
-                        cx, cy, cz = np.cos(euler)
-                        sx, sy, sz = np.sin(euler)
+                        cx, cy, cz = np.cos(euler_vec)
+                        sx, sy, sz = np.sin(euler_vec)
 
                         # 旋转矩阵: Rz * Ry * Rx
                         rot_matrix = np.array(
@@ -598,8 +615,8 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
                         )
                     elif geom_info["quat"] is not None:
                         # 从四元数构建旋转矩阵 (w, x, y, z)
-                        quat = geom_info["quat"]
-                        w, x, y, z = quat
+                        quat_vec = geom_info["quat"]
+                        w, x, y, z = quat_vec
 
                         rot_matrix = np.array(
                             [
@@ -614,7 +631,7 @@ def merge_geoms_by_material(mjcf_path: str | Path) -> None:
                     # 构建4x4变换矩阵
                     transform_matrix = np.eye(4)
                     transform_matrix[:3, :3] = rot_matrix
-                    transform_matrix[:3, 3] = pos
+                    transform_matrix[:3, 3] = pos_vec
 
                     # 手动应用变换到顶点
                     vertices = temp_ms.current_mesh().vertex_matrix()

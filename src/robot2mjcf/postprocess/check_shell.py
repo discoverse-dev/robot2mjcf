@@ -35,6 +35,10 @@ def read_mesh_vertices(file_path: Path) -> Optional[np.ndarray]:
             logger.warning(f"无法加载mesh文件: {file_path}")
             return None
 
+        if not isinstance(mesh_data, trimesh.Trimesh):
+            logger.warning(f"Mesh文件 {file_path} 不是三角网格，跳过")
+            return None
+
         # 获取顶点
         vertices = mesh_data.vertices
 

@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 
@@ -245,12 +247,15 @@ def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> f
         if scale_str:
             scale_vals = list(map(float, scale_str.split()))
             if len(scale_vals) == 3:
-                scale_matrix = [
-                    [scale_vals[0], 0, 0, 0],
-                    [0, scale_vals[1], 0, 0],
-                    [0, 0, scale_vals[2], 0],
-                    [0, 0, 0, 1],
-                ]
+                scale_matrix = np.array(
+                    [
+                        [scale_vals[0], 0.0, 0.0, 0.0],
+                        [0.0, scale_vals[1], 0.0, 0.0],
+                        [0.0, 0.0, scale_vals[2], 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ],
+                    dtype=float,
+                )
                 mesh.apply_transform(scale_matrix)
             elif len(scale_vals) == 1:
                 mesh.apply_scale(scale_vals[0])

@@ -20,19 +20,25 @@ def collision_to_stl(mjcf_path: str | Path) -> None:
     参数:
         mjcf_path: 要处理的 MJCF 文件路径（Path 或字符串）。
     """
+    mjcf_path = Path(mjcf_path)
     tree = ET.parse(mjcf_path)
     root = tree.getroot()
 
     compiler = root.find("compiler")
+    if compiler is None:
+        raise ValueError("MJCF file does not contain a compiler element")
+
     mesh_dir_path = mjcf_path.parent / compiler.attrib["meshdir"]
     asset = root.find("asset")
+    if asset is None:
+        raise ValueError("MJCF file does not contain an asset element")
 
-    asset_to_add = []
+    asset_to_add: list[tuple[str, str]] = []
     for geom in root.iter("geom"):
         if geom.attrib.get("type") == "mesh":
             mesh_name = geom.attrib.get("mesh")
             class_name = geom.attrib.get("class")
-            if class_name == "collision":
+            if class_name == "collision" and mesh_name is not None:
                 for mesh in asset.findall("mesh"):
                     if mesh.attrib.get("name") == mesh_name:
                         mesh_file = mesh_dir_path / mesh.attrib["file"]
@@ -58,13 +64,14 @@ def collision_to_stl(mjcf_path: str | Path) -> None:
                             geom.attrib["mesh"] = Path(mesh_name).with_suffix(".stl").name
                             logger.info(f"已更新 geom {geom.attrib.get('name')} 使用网格 {stl_file.name}")
                             # 将新的 asset 条目记录到待添加列表（稍后追加到 asset）
-                            asset_to_add.append((geom.attrib["mesh"], str(stl_file.relative_to(mesh_dir_path))))
+                            stl_rel_path = str(stl_file.relative_to(mesh_dir_path))
+                            asset_to_add.append((geom.attrib["mesh"], stl_rel_path))
 
                             logger.info(f"已记录 asset 更新: {mesh.attrib.get('name')} -> {mesh.attrib.get('file')}")
                         break
 
-    for a in asset_to_add:
-        asset.append(ET.Element("mesh", name=a[0], file=a[1]))
+    for mesh_name, mesh_file_attr in asset_to_add:
+        asset.append(ET.Element("mesh", name=mesh_name, file=mesh_file_attr))
 
     save_xml(mjcf_path, tree)
 

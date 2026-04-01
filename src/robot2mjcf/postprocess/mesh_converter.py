@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Any
 
 import collada
 import trimesh
@@ -58,7 +59,8 @@ def dae2obj(dae_path: str | Path, obj_path: str | Path):
             geom.visual.material.name = material_name
 
         # 先导出，然后分析trimesh分配的材质名称
-        mesh_data.export(str(obj_path), mtl_name=mtl_name)
+        export_kwargs: dict[str, Any] = {"mtl_name": mtl_name}
+        mesh_data.export(str(obj_path), **export_kwargs)
 
         # 从导出的文件中分析trimesh的材质分配
         material_mapping = {}
@@ -101,6 +103,7 @@ def dae2obj(dae_path: str | Path, obj_path: str | Path):
             with open(str(obj_path), "w") as f:
                 f.write(obj_content)
     else:
-        mesh_data.export(str(obj_path), mtl_name=mtl_name)
+        mesh_export_kwargs: dict[str, Any] = {"mtl_name": mtl_name}
+        mesh_data.export(str(obj_path), **mesh_export_kwargs)
 
     logger.info(f"Successfully converted DAE to OBJ: {obj_path}")

@@ -5,7 +5,7 @@
 ## P0
 
 - [x] 修复 CI 命令路径错误
-- [ ] 让 mypy 真正检查主代码
+- [x] 让 mypy 真正检查主代码
 - [x] 修正文档与实际 CLI/默认行为不一致的问题
 - [x] 清理 `urdf_format.py` 的 import 副作用
 - [x] 将自动截图从默认转换路径中解耦
@@ -23,8 +23,8 @@
 - [ ] 给后处理模块建立统一协议
 - [~] 为高风险模块补测试
   - [x] 为 example 端到端回归建立语义级签名测试
-  - [ ] `package_resolver.py`
-  - [ ] `model_path_manager.py`
+  - [x] `package_resolver.py`
+  - [x] `model_path_manager.py`
   - [ ] `mjcf2obj.py`
   - [ ] `postprocess/collisions.py`
   - [ ] `postprocess/convex_*`

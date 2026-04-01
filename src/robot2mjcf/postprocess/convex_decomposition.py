@@ -4,7 +4,7 @@ import multiprocessing as mp
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import coacd
 import trimesh
@@ -14,7 +14,7 @@ from robot2mjcf.utils import save_xml
 logger = logging.getLogger(__name__)
 
 
-def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str, List[Tuple[str, str]]]]:
+def process_single_mesh(mesh_info: tuple[str, str, Path]) -> Optional[tuple[str, list[tuple[str, str]]]]:
     """处理单个mesh的凸分解。
 
     Args:
@@ -47,6 +47,10 @@ def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str,
         logger.error(f"Failed to load mesh {mesh_file}: {e}")
         return None
 
+    if not isinstance(mesh_data, trimesh.Trimesh):
+        logger.warning(f"Mesh {mesh_file} is not a trimesh.Trimesh instance, skipping")
+        return None
+
     # 执行凸分解
     try:
         mesh_coacd = coacd.Mesh(mesh_data.vertices, mesh_data.faces)
@@ -68,7 +72,7 @@ def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str,
     parts_dir.mkdir(exist_ok=True)
 
     # 保存每个 part
-    part_info = []
+    part_info: list[tuple[str, str]] = []
     for i, part in enumerate(parts):
         try:
             convex_mesh = trimesh.Trimesh(vertices=part[0], faces=part[1])
@@ -118,15 +122,15 @@ def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_pro
         mesh_assets[mesh.attrib["name"]] = mesh.attrib["file"]
 
     # 收集需要进行凸分解的 collision geom
-    collision_geoms = []
+    collision_geoms: list[tuple[ET.Element, ET.Element]] = []
     for body in root.findall(".//body"):
         for geom in body.findall("geom"):
             if geom.attrib.get("class") == "collision" and geom.attrib.get("type") == "mesh" and "mesh" in geom.attrib:
                 collision_geoms.append((body, geom))
 
     # 收集所有需要处理的唯一mesh
-    unique_meshes = set()
-    for body, geom in collision_geoms:
+    unique_meshes: set[str] = set()
+    for _, geom in collision_geoms:
         mesh_name = geom.attrib["mesh"]
         if mesh_name in mesh_assets:
             unique_meshes.add(mesh_name)
@@ -138,7 +142,7 @@ def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_pro
         return
 
     # 准备多进程处理的数据
-    mesh_info_list = []
+    mesh_info_list: list[tuple[str, str, Path]] = []
     for mesh_name in unique_meshes:
         mesh_info_list.append((mesh_name, mesh_assets[mesh_name], mesh_dir))
 
@@ -153,7 +157,7 @@ def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_pro
     logger.info(f"Detected {cpu_count} CPU cores, using {actual_processes} processes for convex decomposition")
 
     # 使用多进程处理mesh
-    new_mesh_parts = {}
+    new_mesh_parts: dict[str, list[tuple[str, str]]] = {}
     if actual_processes == 1:
         # 单进程处理
         for mesh_info in mesh_info_list:
@@ -190,13 +194,13 @@ def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_pro
 
     # 更新 geom 部分
     for body, geom in collision_geoms:
-        mesh_name = geom.attrib.get("mesh")
-        if mesh_name in new_mesh_parts:
+        geom_mesh_name = geom.attrib.get("mesh")
+        if geom_mesh_name and geom_mesh_name in new_mesh_parts:
             # 删除原始 geom
             body.remove(geom)
 
             # 为每个 part 添加新的 geom
-            for part_name, _ in new_mesh_parts[mesh_name]:
+            for part_name, _ in new_mesh_parts[geom_mesh_name]:
                 new_geom = ET.SubElement(body, "geom")
                 # 复制原始 geom 的属性
                 for attr_name, attr_value in geom.attrib.items():
@@ -204,7 +208,7 @@ def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_pro
                         new_geom.attrib[attr_name] = attr_value
 
                 # 设置新的名称和 mesh
-                original_name = geom.attrib.get("name", f"{mesh_name}_collision")
+                original_name = geom.attrib.get("name", f"{geom_mesh_name}_collision")
                 new_geom.attrib["name"] = f"{original_name}_{part_name}"
                 new_geom.attrib["mesh"] = part_name
 
