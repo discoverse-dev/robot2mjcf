@@ -12,7 +12,7 @@ URDF to MJCF conversion tool with support for STL, OBJ, DAE formats, automatic r
 
 ```bash
 git clone https://github.com/discoverse-dev/robot2mjcf.git
-cd urdf2mjcf
+cd robot2mjcf
 uv pip install -e .
 ```
 
@@ -149,7 +149,7 @@ These paths will be searched when resolving `package://` URIs and locating mesh 
 
 This project builds upon these excellent open-source projects:
 
-- **[kscalelabs/urdf2mjcf](https://github.com/kscalelabs/urdf2mjcf)**: Core conversion framework
+- **[kscalelabs/robot2mjcf](https://github.com/kscalelabs/robot2mjcf)**: Core conversion framework
 - **[kevinzakka/obj2mjcf](https://github.com/kevinzakka/obj2mjcf)**: OBJ file processing inspiration
 
 Thanks to the original authors for their outstanding contributions!

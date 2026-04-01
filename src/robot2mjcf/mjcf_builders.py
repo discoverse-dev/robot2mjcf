@@ -4,8 +4,8 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from urdf2mjcf.materials import Material
-from urdf2mjcf.model import ConversionMetadata, DefaultJointMetadata
+from robot2mjcf.materials import Material
+from robot2mjcf.model import ConversionMetadata, DefaultJointMetadata
 
 logger = logging.getLogger(__name__)
 

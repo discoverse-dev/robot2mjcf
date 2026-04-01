@@ -9,9 +9,9 @@ from pathlib import Path
 
 import trimesh
 
-from urdf2mjcf.materials import Material, parse_mtl_name
-from urdf2mjcf.postprocess.mesh_converter import dae2obj
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.materials import Material, parse_mtl_name
+from robot2mjcf.postprocess.mesh_converter import dae2obj
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 

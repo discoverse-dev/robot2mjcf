@@ -1,6 +1,6 @@
 """Tests for Pydantic models."""
 
-from urdf2mjcf.model import (
+from robot2mjcf.model import (
     ActuatorMetadata,
     CollisionGeometry,
     CollisionParams,

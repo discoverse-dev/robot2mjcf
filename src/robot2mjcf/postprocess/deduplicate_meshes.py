@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List
 
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 

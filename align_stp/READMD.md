@@ -32,6 +32,6 @@
 5. 修改urdf文件`/path/to/your/robot.urdf`，将其中的visual mesh路径修改成`/path/to/your/robot_id.obj/../meshes_aligned`中的mesh路径
 6. 执行urdf到mjcf转换：
     ```shell
-    urdf2mjcf /path/to/your/new/robot.urdf -o /path/to/your/new/mjcf/robot.xml --no-convex-decompose
+    robot2mjcf /path/to/your/new/robot.urdf -o /path/to/your/new/mjcf/robot.xml --no-convex-decompose
     # (不做凸分解)
     ```

@@ -6,22 +6,23 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import coacd
 import trimesh
 
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
 
 def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str, List[Tuple[str, str]]]]:
-    """处理单个 mesh：生成并保存其凸包，并返回新的 mesh 资产信息。
+    """处理单个mesh的凸分解。
 
     Args:
         mesh_info: (mesh_name, mesh_file_path, mesh_dir)的元组
 
     Returns:
-        如果成功处理，返回 (mesh_name, [(part_name, part_file)])，其中仅包含一个凸包 part
-        如果处理失败或无需处理，返回 None
+        如果成功处理，返回(mesh_name, [(part_name, part_file), ...])
+        如果处理失败或无需处理，返回None
     """
     mesh_name, mesh_file_relative, mesh_dir = mesh_info
 
@@ -37,7 +38,7 @@ def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str,
         logger.warning(f"Mesh file {mesh_file_relative} does not exist at {mesh_file}.")
         return None
 
-    logger.info(f"Processing mesh {mesh_name}: generating convex hull")
+    logger.info(f"Processing mesh {mesh_name} for convex decomposition")
 
     # 加载 mesh
     try:
@@ -46,37 +47,53 @@ def process_single_mesh(mesh_info: Tuple[str, str, Path]) -> Optional[Tuple[str,
         logger.error(f"Failed to load mesh {mesh_file}: {e}")
         return None
 
-    # 生成凸包并导出
+    # 执行凸分解
     try:
-        convex_hull = mesh_data.convex_hull
+        mesh_coacd = coacd.Mesh(mesh_data.vertices, mesh_data.faces)
+        parts = coacd.run_coacd(mesh_coacd)
+        logger.info(f"Mesh {mesh_name} decomposed into {len(parts)} parts")
+
+        # 如果只有一个part，说明本身就是凸的，无需处理
+        if len(parts) <= 1:
+            logger.info(f"Mesh {mesh_name} is already convex (only {len(parts)} part), skipping")
+            return None
+
     except Exception as e:
-        logger.error(f"Failed to compute convex hull for mesh {mesh_name}: {e}")
+        logger.error(f"Failed to decompose mesh {mesh_name}: {e}")
         return None
 
-    # 创建存放凸包的文件夹（与原 parts 结构一致的层级，便于管理）
+    # 创建 parts 文件夹
     mesh_stem = mesh_file.stem  # 文件名不带扩展名
-    hull_dir = mesh_file.parent / f"{mesh_stem}_convex"
-    hull_dir.mkdir(exist_ok=True)
+    parts_dir = mesh_file.parent / f"{mesh_stem}_parts"
+    parts_dir.mkdir(exist_ok=True)
 
-    # 保存凸包为 STL
-    try:
-        part_filename = f"{mesh_stem}_convex.stl"
-        part_file = hull_dir / part_filename
-        convex_hull.export(part_file)
+    # 保存每个 part
+    part_info = []
+    for i, part in enumerate(parts):
+        try:
+            convex_mesh = trimesh.Trimesh(vertices=part[0], faces=part[1])
+            part_filename = f"{mesh_stem}_part{i + 1}.stl"
+            part_file = parts_dir / part_filename
+            convex_mesh.export(part_file)
 
-        # 相对于 meshdir 的路径，保持原始目录结构
-        original_dir = str(Path(mesh_file_relative).parent)  # 例如: meshes/leg
-        relative_part_path = f"{original_dir}/{mesh_stem}_convex/{part_filename}"
-        part_name = f"{mesh_stem}_convex"
-        logger.info(f"Saved convex hull to {relative_part_path}")
-        return (mesh_name, [(part_name, relative_part_path)])
-    except Exception as e:
-        logger.error(f"Failed to save convex hull of mesh {mesh_name}: {e}")
+            # 相对于 meshdir 的路径，保持原始目录结构
+            original_dir = str(Path(mesh_file_relative).parent)  # 例如: meshes/leg
+            relative_part_path = f"{original_dir}/{mesh_stem}_parts/{part_filename}"
+            part_name = f"{mesh_stem}_part{i + 1}"
+            part_info.append((part_name, relative_part_path))
+
+            logger.info(f"Saved part {i + 1} to {relative_part_path}")
+        except Exception as e:
+            logger.error(f"Failed to save part {i + 1} of mesh {mesh_name}: {e}")
+
+    if part_info:
+        return (mesh_name, part_info)
+    else:
         return None
 
 
-def convex_collision_assets(mjcf_path: str | Path, root: ET.Element, max_processes: Optional[int] = None) -> None:
-    """对 MJCF 文件中 collision 类型的 mesh geom 用其凸包替换。
+def convex_decomposition_assets(mjcf_path: str | Path, root: ET.Element, max_processes: Optional[int] = None) -> None:
+    """对 MJCF 文件中 collision 类型的 geom 进行凸分解。
 
     Args:
         mjcf_path: MJCF 文件的路径
@@ -133,7 +150,7 @@ def convex_collision_assets(mjcf_path: str | Path, root: ET.Element, max_process
         max_processes = max(1, max_processes)  # 确保至少使用1个进程
     actual_processes = min(max_processes, len(mesh_info_list))  # 不超过任务数量
 
-    logger.info(f"Detected {cpu_count} CPU cores, using {actual_processes} processes for convex hull generation")
+    logger.info(f"Detected {cpu_count} CPU cores, using {actual_processes} processes for convex decomposition")
 
     # 使用多进程处理mesh
     new_mesh_parts = {}
@@ -155,7 +172,7 @@ def convex_collision_assets(mjcf_path: str | Path, root: ET.Element, max_process
                     mesh_name, part_info = result
                     new_mesh_parts[mesh_name] = part_info
 
-    logger.info(f"Successfully processed {len(new_mesh_parts)} meshes with convex hull replacement")
+    logger.info(f"Successfully processed {len(new_mesh_parts)} meshes with convex decomposition")
 
     # 更新 asset 部分
     for mesh_name, part_info in new_mesh_parts.items():
@@ -192,8 +209,8 @@ def convex_collision_assets(mjcf_path: str | Path, root: ET.Element, max_process
                 new_geom.attrib["mesh"] = part_name
 
 
-def convex_collision(mjcf_path: str | Path, max_processes: Optional[int] = None) -> None:
-    """对 MJCF 文件进行“碰撞体替换为凸包”的处理。
+def convex_decomposition(mjcf_path: str | Path, max_processes: Optional[int] = None) -> None:
+    """对 MJCF 文件进行凸分解处理。
 
     Args:
         mjcf_path: MJCF 文件的路径
@@ -201,18 +218,19 @@ def convex_collision(mjcf_path: str | Path, max_processes: Optional[int] = None)
     """
     tree = ET.parse(mjcf_path)
     root = tree.getroot()
-    convex_collision_assets(mjcf_path, root, max_processes)
+    convex_decomposition_assets(mjcf_path, root, max_processes)
+
     save_xml(mjcf_path, tree)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="对 MJCF 文件中的 collision mesh 用其凸包替换")
+    parser = argparse.ArgumentParser(description="对 MJCF 文件中的 collision mesh 进行凸分解")
     parser.add_argument("mjcf_path", type=Path, help="MJCF 文件的路径")
     parser.add_argument("--processes", type=int, help="指定使用的进程数量，默认为CPU核心数-4")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    convex_collision(args.mjcf_path, args.processes)
+    convex_decomposition(args.mjcf_path, args.processes)
 
 
 if __name__ == "__main__":

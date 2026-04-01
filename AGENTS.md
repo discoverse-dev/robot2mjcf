@@ -9,14 +9,14 @@
 
 - Install dependencies: `uv sync --all-groups`
 - Run tests: `uv run pytest`
-- Lint: `uv run ruff check src/urdf2mjcf tests`
-- Format: `uv run ruff format src/urdf2mjcf tests`
-- Type check: `uv run mypy src/urdf2mjcf tests`
+- Lint: `uv run ruff check src/robot2mjcf tests`
+- Format: `uv run ruff format src/robot2mjcf tests`
+- Type check: `uv run mypy src/robot2mjcf tests`
 - Local build: `uv build`
 
 ## Project Structure
 
-- `src/urdf2mjcf/` — Main package source (import name remains `urdf2mjcf`)
+- `src/robot2mjcf/` — Main package source (import name remains `robot2mjcf`)
 - `tests/` — pytest suite
 - `.github/workflows/` — CI (matrix testing + lint + mypy) and TestPyPI release
 - `pyproject.toml` — Single source of truth for build, dependencies, and tool configs
@@ -24,7 +24,7 @@
 ## Packaging & Release
 
 - PyPI / TestPyPI distribution name: `robot2mjcf`
-- In-code import name: `urdf2mjcf` (kept for backward compatibility)
+- In-code import name: `robot2mjcf` (kept for backward compatibility)
 - Release trigger: pushing a `v*` tag automatically publishes to **TestPyPI** via GitHub Actions
 - **Do NOT manually push to the production PyPI**
 

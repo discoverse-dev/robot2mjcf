@@ -11,9 +11,9 @@ from pathlib import Path
 
 import numpy as np
 
-from urdf2mjcf.geometry import GeomElement, ParsedJointParams, compute_min_z, format_value, rpy_to_quat
-from urdf2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
-from urdf2mjcf.mjcf_builders import (
+from robot2mjcf.geometry import GeomElement, ParsedJointParams, compute_min_z, format_value, rpy_to_quat
+from robot2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
+from robot2mjcf.mjcf_builders import (
     ROBOT_CLASS,
     add_assets,
     add_compiler,
@@ -21,26 +21,26 @@ from urdf2mjcf.mjcf_builders import (
     add_visual,
     add_weld_constraints,
 )
-from urdf2mjcf.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
-from urdf2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
-from urdf2mjcf.postprocess.add_appendix import add_appendix
-from urdf2mjcf.postprocess.add_backlash import add_backlash
-from urdf2mjcf.postprocess.add_floor import add_floor
-from urdf2mjcf.postprocess.add_light import add_light
-from urdf2mjcf.postprocess.base_joint import fix_base_joint
-from urdf2mjcf.postprocess.check_shell import check_shell_meshes
-from urdf2mjcf.postprocess.collision_to_stl import collision_to_stl
-from urdf2mjcf.postprocess.collisions import update_collisions
-from urdf2mjcf.postprocess.convex_collision import convex_collision
-from urdf2mjcf.postprocess.convex_decomposition import convex_decomposition
-from urdf2mjcf.postprocess.deduplicate_meshes import deduplicate_meshes
-from urdf2mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
-from urdf2mjcf.postprocess.make_degrees import make_degrees
-from urdf2mjcf.postprocess.move_mesh_scale import move_mesh_scale
-from urdf2mjcf.postprocess.remove_redundancies import remove_redundancies
-from urdf2mjcf.postprocess.split_obj_materials import split_obj_by_materials
-from urdf2mjcf.postprocess.update_mesh import update_mesh
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
+from robot2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
+from robot2mjcf.postprocess.add_appendix import add_appendix
+from robot2mjcf.postprocess.add_backlash import add_backlash
+from robot2mjcf.postprocess.add_floor import add_floor
+from robot2mjcf.postprocess.add_light import add_light
+from robot2mjcf.postprocess.base_joint import fix_base_joint
+from robot2mjcf.postprocess.check_shell import check_shell_meshes
+from robot2mjcf.postprocess.collision_to_stl import collision_to_stl
+from robot2mjcf.postprocess.collisions import update_collisions
+from robot2mjcf.postprocess.convex_collision import convex_collision
+from robot2mjcf.postprocess.convex_decomposition import convex_decomposition
+from robot2mjcf.postprocess.deduplicate_meshes import deduplicate_meshes
+from robot2mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
+from robot2mjcf.postprocess.make_degrees import make_degrees
+from robot2mjcf.postprocess.move_mesh_scale import move_mesh_scale
+from robot2mjcf.postprocess.remove_redundancies import remove_redundancies
+from robot2mjcf.postprocess.split_obj_materials import split_obj_by_materials
+from robot2mjcf.postprocess.update_mesh import update_mesh
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +227,7 @@ def convert_urdf_to_mjcf(
         logger.debug(f"Found ROS workspace from URDF location: {workspace_from_urdf}")
 
     # Also try to find the package root of the URDF file itself for local resource resolution
-    from urdf2mjcf.package_resolver import _default_resolver
+    from robot2mjcf.package_resolver import _default_resolver
 
     package_root = _default_resolver._find_package_root_from_urdf_path(urdf_path)
     if package_root and package_root not in workspace_search_paths:
@@ -885,14 +885,14 @@ def convert_urdf_to_mjcf(
     # Capture robot images
     print("Capturing robot images...")
     try:
-        from urdf2mjcf.postprocess.capture import capture_robot_images
+        from robot2mjcf.postprocess.capture import capture_robot_images
 
         capture_robot_images(mjcf_path)
     except Exception as e:
         logger.warning(f"Failed to capture images: {e}")
         print(f"⚠️  Image capture failed: {e}")
         print("   You can manually capture images later using:")
-        print(f"   python -m urdf2mjcf.postprocess.capture {mjcf_path}")
+        print(f"   python -m robot2mjcf.postprocess.capture {mjcf_path}")
 
 
 def main() -> None:

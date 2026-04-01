@@ -16,8 +16,8 @@ import numpy as np
 import trimesh
 from scipy.spatial.transform import Rotation as R
 
-from urdf2mjcf.model import CollisionGeometry, CollisionType
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.model import CollisionGeometry, CollisionType
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ Example
 -------
 python mjcf2obj.py path/to/model.xml out_dir
 
-This script follows the conventions used in ``urdf2mjcf.postprocess`` modules
+This script follows the conventions used in ``robot2mjcf.postprocess`` modules
 for parsing MJCF files and relies on ``pymeshlab`` for mesh IO.
 """
 

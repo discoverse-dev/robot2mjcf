@@ -12,7 +12,7 @@ URDF到MJCF转换工具，支持stl、obj、dae格式，自动识别urdf中的mi
 
 ```bash
 git clone https://github.com/discoverse-dev/robot2mjcf.git
-cd urdf2mjcf
+cd robot2mjcf
 uv pip install -e .
 ```
 

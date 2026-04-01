@@ -7,8 +7,8 @@ from pathlib import Path
 
 from scipy.spatial.transform import Rotation as R
 
-from urdf2mjcf.model import ConversionMetadata, SiteMetadata
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.model import ConversionMetadata, SiteMetadata
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -245,5 +245,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # python -m urdf2mjcf.postprocess.add_sensors
+    # python -m robot2mjcf.postprocess.add_sensors
     main()

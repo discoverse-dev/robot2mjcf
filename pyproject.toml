@@ -45,9 +45,9 @@ Repository = "https://github.com/discoverse-dev/robot2mjcf"
 Issues = "https://github.com/discoverse-dev/robot2mjcf/issues"
 
 [project.scripts]
-robot2mjcf = "urdf2mjcf.convert:main"
-robot2mjcf-mjcf2obj = "urdf2mjcf.mjcf2obj:main"
-robot2mjcf-modelpath = "urdf2mjcf.model_path_manager:main"
+robot2mjcf = "robot2mjcf.convert:main"
+robot2mjcf-mjcf2obj = "robot2mjcf.mjcf2obj:main"
+robot2mjcf-modelpath = "robot2mjcf.model_path_manager:main"
 
 [dependency-groups]
 dev = [
@@ -58,10 +58,10 @@ dev = [
 ]
 
 [tool.hatch.version]
-path = "src/urdf2mjcf/__init__.py"
+path = "src/robot2mjcf/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/urdf2mjcf"]
+packages = ["src/robot2mjcf"]
 
 [tool.ruff]
 line-length = 120
@@ -81,10 +81,10 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --cov=urdf2mjcf --cov-report=term-missing"
+addopts = "-v --cov=robot2mjcf --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["src/urdf2mjcf"]
+source = ["src/robot2mjcf"]
 omit = [
     "*/tests/*",
     "*/postprocess/capture.py",
@@ -108,6 +108,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "urdf2mjcf.*",
+    "robot2mjcf.*",
 ]
 ignore_errors = true

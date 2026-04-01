@@ -5,7 +5,7 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from urdf2mjcf.utils import save_xml
+from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -142,5 +142,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # python -m urdf2mjcf.postprocess.add_backlash
+    # python -m robot2mjcf.postprocess.add_backlash
     main()
