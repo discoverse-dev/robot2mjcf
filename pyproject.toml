@@ -81,7 +81,7 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --cov=robot2mjcf --cov-report=term-missing"
+addopts = "-v --cov=robot2mjcf --cov-report=term-missing --cov-fail-under=50"
 
 [tool.coverage.run]
 source = ["src/robot2mjcf"]

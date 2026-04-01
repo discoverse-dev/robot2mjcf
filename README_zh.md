@@ -144,6 +144,15 @@ export URDF2MJCF_MODEL_PATH="/workspace/src/robot1_description:/workspace/src/ro
 
 这些路径将在解析 `package://` URI 和定位网格文件时被搜索。
 
+## 📚 补充文档
+
+- [架构说明](./docs/ARCHITECTURE.md)
+- [元数据字段参考](./docs/METADATA_REFERENCE.md)
+- [示例教程](./docs/EXAMPLES.md)
+- [常见问题排查](./docs/TROUBLESHOOTING.md)
+- [贡献指南](./CONTRIBUTING.md)
+- [变更记录](./CHANGELOG.md)
+
 ## 🤝 致谢
 
 本项目基于以下优秀开源项目：
@@ -155,4 +164,4 @@ export URDF2MJCF_MODEL_PATH="/workspace/src/robot1_description:/workspace/src/ro
 
 ## 📄 许可证
 
-MIT License
+MIT，见 [LICENSE](./LICENSE)。

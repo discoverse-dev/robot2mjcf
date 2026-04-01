@@ -16,8 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.12"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+          - os: ubuntu-latest
+            python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.12"
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +35,9 @@ jobs:
       - name: Sync dependencies
         run: uv sync --all-groups
 
+      - name: Check formatting
+        run: uv run ruff format --check src/robot2mjcf tests
+
       - name: Lint with Ruff
         run: uv run ruff check src/robot2mjcf tests
 
@@ -38,3 +46,52 @@ jobs:
 
       - name: Test with pytest
         run: uv run pytest
+
+  windows-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: CLI smoke test
+        run: |
+          uv run robot2mjcf --help
+          uv run robot2mjcf-modelpath --help
+          uv run robot2mjcf-mjcf2obj --help
+
+      - name: Import smoke test
+        run: uv run pytest tests/test_import.py -q
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --all-groups
+
+      - name: Build package
+        run: uv build
+
+      - name: Smoke install wheel
+        run: |
+          uv venv .pkg-smoke
+          uv pip install --python .pkg-smoke/bin/python dist/*.whl
+          .pkg-smoke/bin/robot2mjcf --help
+          .pkg-smoke/bin/robot2mjcf-modelpath --help
+          .pkg-smoke/bin/robot2mjcf-mjcf2obj --help

@@ -25,30 +25,30 @@
   - [x] 为 example 端到端回归建立语义级签名测试
   - [x] `package_resolver.py`
   - [x] `model_path_manager.py`
-  - [ ] `mjcf2obj.py`
-  - [ ] `postprocess/collisions.py`
-  - [ ] `postprocess/convex_*`
-  - [ ] `postprocess/add_sensors.py`
+  - [x] `mjcf2obj.py`
+  - [x] `postprocess/collisions.py`
+  - [x] `postprocess/convex_*`
+  - [x] `postprocess/add_sensors.py`
 - [ ] 修复明显漂移接口
   - [x] `mjcf_builders.add_default()` 类型标注
   - [x] `model_path_manager --max-depth` 未生效
 
 ## P2
 
-- [ ] 增加 Windows CI smoke test
+- [x] 增加 Windows CI smoke test
 - [ ] 做能力分层
   - [ ] 轻量转换核心与重型 mesh 后处理分层
   - [ ] 把依赖最重的步骤改为显式可选
-- [ ] 建立更完整的文档体系
-  - [ ] 架构说明
-  - [ ] 元数据字段参考
-  - [ ] 示例教程
-  - [ ] 常见报错与排查
-  - [ ] CONTRIBUTING
-  - [ ] 版本变更日志
-  - [ ] LICENSE 文件
+- [x] 建立更完整的文档体系
+  - [x] 架构说明
+  - [x] 元数据字段参考
+  - [x] 示例教程
+  - [x] 常见报错与排查
+  - [x] CONTRIBUTING
+  - [x] 版本变更日志
+  - [x] LICENSE 文件
 - [ ] 建立更可信的质量门禁
-  - [ ] 覆盖率阈值
-  - [ ] 按模块逐步收紧 mypy
-  - [ ] `ruff format --check`
-  - [ ] 构建产物 smoke install
+  - [x] 覆盖率阈值
+  - [x] 按模块逐步收紧 mypy
+  - [x] `ruff format --check`
+  - [x] 构建产物 smoke install

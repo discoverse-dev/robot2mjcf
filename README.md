@@ -144,6 +144,15 @@ export URDF2MJCF_MODEL_PATH="/workspace/src/robot1_description:/workspace/src/ro
 
 These paths will be searched when resolving `package://` URIs and locating mesh files.
 
+## 📚 Additional Docs
+
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Metadata Reference](./docs/METADATA_REFERENCE.md)
+- [Example Walkthrough](./docs/EXAMPLES.md)
+- [Troubleshooting](./docs/TROUBLESHOOTING.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Changelog](./CHANGELOG.md)
+
 ## 🤝 Acknowledgments
 
 This project builds upon these excellent open-source projects:
@@ -155,4 +164,4 @@ Thanks to the original authors for their outstanding contributions!
 
 ## 📄 License
 
-MIT License
+MIT. See [LICENSE](./LICENSE).
