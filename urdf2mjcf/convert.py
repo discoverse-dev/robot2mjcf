@@ -1,56 +1,49 @@
 """Converts URDF files to MJCF files."""
 
-import os
-import json
-import shutil
-import logging
 import argparse
+import json
+import logging
+import os
+import shutil
 import traceback
-import numpy as np
-from pathlib import Path
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
-from urdf2mjcf.model import DefaultJointMetadata, ActuatorMetadata, ConversionMetadata
+import numpy as np
+
+from urdf2mjcf.geometry import GeomElement, ParsedJointParams, compute_min_z, format_value, rpy_to_quat
+from urdf2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
+from urdf2mjcf.mjcf_builders import (
+    ROBOT_CLASS,
+    add_assets,
+    add_compiler,
+    add_default,
+    add_visual,
+    add_weld_constraints,
+)
+from urdf2mjcf.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
+from urdf2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
 from urdf2mjcf.postprocess.add_appendix import add_appendix
 from urdf2mjcf.postprocess.add_backlash import add_backlash
 from urdf2mjcf.postprocess.add_floor import add_floor
 from urdf2mjcf.postprocess.add_light import add_light
-from urdf2mjcf.postprocess.update_mesh import update_mesh
-from urdf2mjcf.postprocess.move_mesh_scale import move_mesh_scale
+from urdf2mjcf.postprocess.base_joint import fix_base_joint
+from urdf2mjcf.postprocess.check_shell import check_shell_meshes
+from urdf2mjcf.postprocess.collision_to_stl import collision_to_stl
+from urdf2mjcf.postprocess.collisions import update_collisions
 from urdf2mjcf.postprocess.convex_collision import convex_collision
 from urdf2mjcf.postprocess.convex_decomposition import convex_decomposition
-from urdf2mjcf.postprocess.split_obj_materials import split_obj_by_materials
-from urdf2mjcf.postprocess.collision_to_stl import collision_to_stl
-from urdf2mjcf.postprocess.base_joint import fix_base_joint
-from urdf2mjcf.postprocess.collisions import update_collisions
+from urdf2mjcf.postprocess.deduplicate_meshes import deduplicate_meshes
 from urdf2mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
 from urdf2mjcf.postprocess.make_degrees import make_degrees
+from urdf2mjcf.postprocess.move_mesh_scale import move_mesh_scale
 from urdf2mjcf.postprocess.remove_redundancies import remove_redundancies
-from urdf2mjcf.postprocess.check_shell import check_shell_meshes
-from urdf2mjcf.postprocess.deduplicate_meshes import deduplicate_meshes
+from urdf2mjcf.postprocess.split_obj_materials import split_obj_by_materials
+from urdf2mjcf.postprocess.update_mesh import update_mesh
 from urdf2mjcf.utils import save_xml
 
-from urdf2mjcf.geometry import (
-    ParsedJointParams, 
-    GeomElement,
-    format_value,
-    compute_min_z, 
-    rpy_to_quat
-)
-from urdf2mjcf.mjcf_builders import (
-    add_compiler,
-    add_default,
-    add_contact,
-    add_weld_constraints,
-    add_option,
-    add_visual,
-    add_assets,
-    ROBOT_CLASS
-)
-from urdf2mjcf.package_resolver import resolve_package_path, find_workspace_from_path
-from urdf2mjcf.materials import Material, parse_mtl_name, get_obj_material_info, copy_obj_with_mtl
-
 logger = logging.getLogger(__name__)
+
 
 def _get_empty_actuator_metadata(
     robot_elem: ET.Element,
@@ -70,6 +63,7 @@ def _get_empty_actuator_metadata(
 
     return actuator_meta
 
+
 def convert_urdf_to_mjcf(
     urdf_path: str | Path,
     mjcf_path: str | Path | None = None,
@@ -80,7 +74,7 @@ def convert_urdf_to_mjcf(
     appendix_files: list[Path] | None = None,
     max_vertices: int = 1000000,
     collision_only: bool = False,
-    collision_type: bool = True
+    collision_type: bool = True,
 ) -> None:
     """Converts a URDF file to an MJCF file.
 
@@ -202,7 +196,7 @@ def convert_urdf_to_mjcf(
     mesh_assets: dict[str, str] = {}
     actuator_joints: list[ParsedJointParams] = []
     mimic_constraints: list[tuple[str, str, float, float]] = []  # (mimicked_joint, mimicking_joint, multiplier, offset)
-    
+
     # Parse mimic joints from URDF
     for joint in robot.findall("joint"):
         mimic_elem = joint.find("mimic")
@@ -211,33 +205,38 @@ def convert_urdf_to_mjcf(
             mimicked_joint = mimic_elem.attrib.get("joint")
             multiplier = float(mimic_elem.attrib.get("multiplier", "1.0"))
             offset = float(mimic_elem.attrib.get("offset", "0.0"))
-            
+
             if joint_name and mimicked_joint:
                 mimic_constraints.append((mimicked_joint, joint_name, multiplier, offset))
-                logger.info(f"Found mimic constraint: {joint_name} mimics {mimicked_joint} with multiplier={multiplier}, offset={offset}")
-    
+                logger.info(
+                    f"Found mimic constraint: {joint_name} mimics {mimicked_joint} with multiplier={multiplier}, offset={offset}"
+                )
+
     # Prepare paths for mesh processing
     urdf_dir: Path = urdf_path.parent.resolve()
     target_mesh_dir: Path = (mjcf_path.parent / "meshes").resolve()
     target_mesh_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Auto-detect workspace search paths for package resolution
     workspace_search_paths = []
-    
+
     # Find workspace from URDF file location
     workspace_from_urdf = find_workspace_from_path(urdf_path)
     if workspace_from_urdf:
         workspace_search_paths.append(workspace_from_urdf)
         logger.debug(f"Found ROS workspace from URDF location: {workspace_from_urdf}")
-    
+
     # Also try to find the package root of the URDF file itself for local resource resolution
     from urdf2mjcf.package_resolver import _default_resolver
+
     package_root = _default_resolver._find_package_root_from_urdf_path(urdf_path)
     if package_root and package_root not in workspace_search_paths:
         workspace_search_paths.append(package_root)
         logger.debug(f"Found package root from URDF location: {package_root}")
 
-    def handle_geom_element(geom_elem: ET.Element | None, default_size: str, prefix: str="", link_prefix: str="") -> GeomElement:
+    def handle_geom_element(
+        geom_elem: ET.Element | None, default_size: str, prefix: str = "", link_prefix: str = ""
+    ) -> GeomElement:
         """Helper to handle geometry elements safely.
 
         Args:
@@ -290,7 +289,7 @@ def convert_urdf_to_mjcf(
                     mesh_name = f"{link_prefix}_{mesh_name}"
                 if mesh_name not in mesh_assets:
                     mesh_assets[mesh_name] = filename
-                        
+
                 scale = mesh_elem.attrib.get("scale")
                 return GeomElement(
                     type="mesh",
@@ -327,10 +326,10 @@ def convert_urdf_to_mjcf(
 
         body_attrib = {"name": link_name}
         pos_float = np.array(list(map(float, pos.split())))
-        if not np.allclose(pos_float, [0., 0., 0.]):
+        if not np.allclose(pos_float, [0.0, 0.0, 0.0]):
             body_attrib["pos"] = pos
         quat_float = list(map(float, quat.split()))
-        if not np.allclose(quat_float, [1., 0., 0., 0.]):
+        if not np.allclose(quat_float, [1.0, 0.0, 0.0, 0.0]):
             body_attrib["quat"] = quat
         body: ET.Element = ET.Element("body", attrib=body_attrib)
 
@@ -431,10 +430,10 @@ def convert_urdf_to_mjcf(
 
             collision_geom_attrib: dict[str, str] = {"name": name}
             pos_float = np.array(list(map(float, pos_geom.split())))
-            if not np.allclose(pos_float, [0., 0., 0.]):
+            if not np.allclose(pos_float, [0.0, 0.0, 0.0]):
                 collision_geom_attrib["pos"] = pos_geom
             quat_float = list(map(float, quat_geom.split()))
-            if not np.allclose(quat_float, [1., 0., 0., 0.]):
+            if not np.allclose(quat_float, [1.0, 0.0, 0.0, 0.0]):
                 collision_geom_attrib["quat"] = quat_geom
 
             # Get material from collision element
@@ -464,12 +463,12 @@ def convert_urdf_to_mjcf(
                 else:
                     pos_geom = "0 0 0"
                     quat_geom = "1 0 0 0"
-                
+
                 visual_geom_elem: ET.Element | None = visual.find("geometry")
                 if visual_geom_elem is not None:
                     # Add link_name as prefix to avoid mesh name conflicts between different links
                     geom = handle_geom_element(visual_geom_elem, "1 1 1", link_prefix=link_name)
-                    
+
                     # Standard single geom creation
                     name = f"{link_name}_visual"
                     if len(visuals) > 1:
@@ -477,18 +476,18 @@ def convert_urdf_to_mjcf(
                     visual_geom_attrib: dict[str, str] = {"name": name}
 
                     pos_float = np.array(list(map(float, pos_geom.split())))
-                    if not np.allclose(pos_float, [0., 0., 0.]):
+                    if not np.allclose(pos_float, [0.0, 0.0, 0.0]):
                         visual_geom_attrib["pos"] = pos_geom
                     quat_float = list(map(float, quat_geom.split()))
-                    if not np.allclose(quat_float, [1., 0., 0., 0.]):
+                    if not np.allclose(quat_float, [1.0, 0.0, 0.0, 0.0]):
                         visual_geom_attrib["quat"] = quat_geom
-                    
+
                     visual_geom_attrib["type"] = geom.type
                     if geom.type == "mesh" and geom.mesh is not None:
                         visual_geom_attrib["mesh"] = geom.mesh
                     elif geom.size is not None:
                         visual_geom_attrib["size"] = geom.size
-                        
+
                     if geom.scale is not None:
                         visual_geom_attrib["scale"] = geom.scale
                 else:
@@ -502,9 +501,9 @@ def convert_urdf_to_mjcf(
                         "pos": pos_geom,
                         "quat": quat_geom,
                         "type": "box",
-                        "size": "1 1 1"
+                        "size": "1 1 1",
                     }
-                
+
                 # Check URDF material first
                 assigned_material = "default_material"
                 material_elem = visual.find("material")
@@ -512,7 +511,7 @@ def convert_urdf_to_mjcf(
                     material_name = material_elem.attrib.get("name")
                     if material_name and material_name in materials:
                         assigned_material = material_name
-                
+
                 # For mesh geoms, check if it's a single-material OBJ file
                 if geom.type == "mesh" and geom.mesh is not None and assigned_material == "default_material":
                     # Try to find the actual OBJ file to check its materials
@@ -521,28 +520,28 @@ def convert_urdf_to_mjcf(
                         if mesh_name == geom.mesh:
                             obj_filename = filename
                             break
-                    
-                    if obj_filename and obj_filename.lower().endswith('.obj'):
+
+                    if obj_filename and obj_filename.lower().endswith(".obj"):
                         # Determine the actual OBJ file path
                         obj_file_path = None
-                        if 'package://' in obj_filename:
+                        if "package://" in obj_filename:
                             # Handle package:// paths
-                            package_path = obj_filename[len('package://'):]
-                            pkg_mesh_name = package_path.split('/')[0]
-                            sub_path = '/'.join(package_path.split('/')[1:])
+                            package_path = obj_filename[len("package://") :]
+                            pkg_mesh_name = package_path.split("/")[0]
+                            sub_path = "/".join(package_path.split("/")[1:])
                             try:
                                 pkg_root = resolve_package_path(pkg_mesh_name, workspace_search_paths)
                                 if pkg_root:
                                     obj_file_path = pkg_root / sub_path
-                            except:
+                            except Exception:
                                 obj_file_path = None
                         else:
                             # Regular path
-                            if obj_filename.startswith('/'):
+                            if obj_filename.startswith("/"):
                                 obj_file_path = Path(obj_filename)
                             else:
                                 obj_file_path = urdf_dir / obj_filename
-                        
+
                         if obj_file_path:
                             has_single_material, material_name = get_obj_material_info(obj_file_path)
                             if has_single_material and material_name:
@@ -550,8 +549,10 @@ def convert_urdf_to_mjcf(
                                 obj_stem = obj_file_path.stem
                                 single_material_name = f"{obj_stem}_{material_name}"
                                 assigned_material = single_material_name
-                                logger.info(f"Assigned single OBJ material {single_material_name} to geom {visual_geom_attrib['name']}")
-                            
+                                logger.info(
+                                    f"Assigned single OBJ material {single_material_name} to geom {visual_geom_attrib['name']}"
+                                )
+
                 visual_geom_attrib["material"] = assigned_material
                 visual_geom_attrib["class"] = "visual"
                 ET.SubElement(body, "geom", attrib=visual_geom_attrib)
@@ -575,25 +576,25 @@ def convert_urdf_to_mjcf(
     # Collect materials from single-material OBJ files
     obj_materials = {}
     for mesh_name, filename in mesh_assets.items():
-        if filename.lower().endswith('.obj'):
+        if filename.lower().endswith(".obj"):
             # Determine the actual OBJ file path
             obj_file_path = None
-            if 'package://' in filename:
-                package_path = filename[len('package://'):]
-                pkg_mesh_name = package_path.split('/')[0]
-                sub_path = '/'.join(package_path.split('/')[1:])
+            if "package://" in filename:
+                package_path = filename[len("package://") :]
+                pkg_mesh_name = package_path.split("/")[0]
+                sub_path = "/".join(package_path.split("/")[1:])
                 try:
                     pkg_root = resolve_package_path(pkg_mesh_name, workspace_search_paths)
                     if pkg_root:
                         obj_file_path = pkg_root / sub_path
-                except:
+                except Exception:
                     obj_file_path = None
             else:
-                if filename.startswith('/'):
+                if filename.startswith("/"):
                     obj_file_path = Path(filename)
                 else:
                     obj_file_path = urdf_dir / filename
-            
+
             if obj_file_path:
                 has_single_material, material_name = get_obj_material_info(obj_file_path)
                 if has_single_material and material_name:
@@ -605,7 +606,7 @@ def convert_urdf_to_mjcf(
                             if mtl_file.exists():
                                 with open(mtl_file, "r") as f:
                                     mtl_lines = f.readlines()
-                                
+
                                 # Find the material definition
                                 material_lines = []
                                 in_material = False
@@ -618,7 +619,7 @@ def convert_urdf_to_mjcf(
                                         break
                                     elif in_material:
                                         material_lines.append(line)
-                                
+
                                 if material_lines:
                                     material = Material.from_string(material_lines)
                                     obj_stem = obj_file_path.stem
@@ -646,15 +647,19 @@ def convert_urdf_to_mjcf(
                 joint_class_value = actuator_metadata[actuator_joint.name].joint_class
                 attrib["class"] = str(joint_class_value)
                 logger.info("Joint %s assigned to class: %s", actuator_joint.name, joint_class_value)
-            
+
             if actuator_metadata[actuator_joint.name].kp is not None:
                 attrib["kp"] = str(actuator_metadata[actuator_joint.name].kp)
             if actuator_metadata[actuator_joint.name].kv is not None:
                 attrib["kv"] = str(actuator_metadata[actuator_joint.name].kv)
             if actuator_metadata[actuator_joint.name].ctrlrange is not None:
-                attrib["ctrlrange"] = f"{actuator_metadata[actuator_joint.name].ctrlrange[0]} {actuator_metadata[actuator_joint.name].ctrlrange[1]}"
+                attrib["ctrlrange"] = (
+                    f"{actuator_metadata[actuator_joint.name].ctrlrange[0]} {actuator_metadata[actuator_joint.name].ctrlrange[1]}"
+                )
             if actuator_metadata[actuator_joint.name].forcerange is not None:
-                attrib["forcerange"] = f"{actuator_metadata[actuator_joint.name].forcerange[0]} {actuator_metadata[actuator_joint.name].forcerange[1]}"
+                attrib["forcerange"] = (
+                    f"{actuator_metadata[actuator_joint.name].forcerange[0]} {actuator_metadata[actuator_joint.name].forcerange[1]}"
+                )
             if actuator_metadata[actuator_joint.name].gear is not None:
                 attrib["gear"] = str(actuator_metadata[actuator_joint.name].gear)
 
@@ -674,7 +679,7 @@ def convert_urdf_to_mjcf(
             logger.warning(f"Warning: Actuator {actuator.attrib['joint']} not found in actuator_metadata")
 
     actuator_children.sort(key=lambda x: list(actuator_metadata.keys()).index(x.attrib["joint"]))
-    
+
     # 清空actuator_elem并重新添加排序后的子元素
     for child in actuator_children:
         actuator_elem.remove(child)
@@ -685,21 +690,18 @@ def convert_urdf_to_mjcf(
     if mimic_constraints:
         equality_elem = ET.SubElement(mjcf_root, "equality")
         for mimicked_joint, mimicking_joint, multiplier, offset in mimic_constraints:
-            joint_attrib = {
-                "joint1": mimicked_joint,
-                "joint2": mimicking_joint
-            }
-            
+            joint_attrib = {"joint1": mimicked_joint, "joint2": mimicking_joint}
+
             # Generate polycoef attribute for MuJoCo equality constraint
             # MuJoCo polycoef format: "offset multiplier 0 0 0" for linear relationship
             # This creates the constraint: joint2 = offset + multiplier * joint1
             polycoef = f"{offset} {multiplier} 0 0 0"
             joint_attrib["polycoef"] = polycoef
-            
+
             # Use collision class defaults for solver parameters if available
             joint_attrib["solimp"] = "0.95 0.99 0.001"
             joint_attrib["solref"] = "0.005 1"
-            
+
             ET.SubElement(equality_elem, "joint", attrib=joint_attrib)
             logger.info(f"Added equality constraint: {mimicking_joint} = {offset} + {multiplier} * {mimicked_joint}")
 
@@ -713,17 +715,17 @@ def convert_urdf_to_mjcf(
     processed_files = set()
     non_existing_meshes = set()
     mesh_file_paths: dict[str, Path] = {}  # mesh_name -> actual file path
-    
+
     for mesh_name, filename in mesh_assets.items():
         # Determine source path based on whether it's a package:// URL or regular path
         source_path: Path | None = None
         target_path: Path | None = None
-        
-        if 'package://' in filename:
+
+        if "package://" in filename:
             # Extract package name and relative path from package URL
-            package_path = filename[len('package://'):]
-            pkg_mesh_name = package_path.split('/')[0]
-            sub_path = '/'.join(package_path.split('/')[1:])
+            package_path = filename[len("package://") :]
+            pkg_mesh_name = package_path.split("/")[0]
+            sub_path = "/".join(package_path.split("/")[1:])
             # Use package_resolver to find the package path
             try:
                 pkg_root = resolve_package_path(pkg_mesh_name, workspace_search_paths)
@@ -731,11 +733,11 @@ def convert_urdf_to_mjcf(
                     source_path = pkg_root / sub_path
                 else:
                     source_path = None
-            except:
+            except Exception:
                 source_path = None
             # Include package name in target path for package:// URLs
             sub_path = f"{pkg_mesh_name}/{sub_path}"
-        elif filename.startswith('/'):
+        elif filename.startswith("/"):
             sub_path = os.path.relpath(filename, urdf_dir)
             source_path = Path(filename)
         else:
@@ -757,7 +759,7 @@ def convert_urdf_to_mjcf(
                 if source_path != target_path:
                     try:
                         # Special handling for OBJ files - copy with MTL
-                        if source_path.suffix.lower() == '.obj':
+                        if source_path.suffix.lower() == ".obj":
                             copy_obj_with_mtl(source_path, target_path)
                         else:
                             shutil.copy2(source_path, target_path)
@@ -775,12 +777,13 @@ def convert_urdf_to_mjcf(
         print(non_existing_meshes)
         for mesh_name in non_existing_meshes:
             del mesh_assets[mesh_name]
-        
+
         geom_mesh_to_remove = []
         for geom in mjcf_root.iter("geom"):
             mesh_name = geom.attrib.get("mesh")
             if mesh_name and mesh_name in non_existing_meshes:
                 geom_mesh_to_remove.append(geom)
+
         # 修复：mjcf_root.remove(geom) 只适用于直接子元素，嵌套需找到 parent
         def remove_geoms_from_tree(root, geoms_to_remove):
             parent_map = {c: p for p in root.iter() for c in p}
@@ -788,6 +791,7 @@ def convert_urdf_to_mjcf(
                 parent = parent_map.get(geom)
                 if parent is not None:
                     parent.remove(geom)
+
         remove_geoms_from_tree(mjcf_root, geom_mesh_to_remove)
 
     # Add mesh assets to the asset section before saving
@@ -796,25 +800,25 @@ def convert_urdf_to_mjcf(
         asset_elem = ET.SubElement(mjcf_root, "asset")
     for mesh_name, filename in mesh_assets.items():
         # Clean up package:// paths to relative paths
-        if 'package://' in filename:
+        if "package://" in filename:
             # Extract the full path including package name
-            package_path = filename[len('package://'):]
+            package_path = filename[len("package://") :]
             # Keep package name in the path, prepend meshes/ directory
             filename = f"meshes/{package_path}"
-        elif filename.startswith('/'):
+        elif filename.startswith("/"):
             rel_path = os.path.relpath(filename, urdf_dir)
             filename = f"meshes/{rel_path}"
         else:
             # Regular relative path
             filename = f"meshes/{filename}"
 
-        # mesh_name already should be the stem (without .obj), 
+        # mesh_name already should be the stem (without .obj),
         # so it will match the geom references
         ET.SubElement(asset_elem, "mesh", attrib={"name": mesh_name, "file": filename})
 
     # Compute minimum z coordinate and adjust robot base position
     # This is done after all mesh assets are copied so we can load them
-    print(f"Computing minimum z coordinate from geometries...")
+    print("Computing minimum z coordinate from geometries...")
     min_z: float = compute_min_z(robot_body, mesh_file_paths=mesh_file_paths)
     computed_offset: float = -min_z + metadata.height_offset
     logger.info("Auto-detected base offset: %s (min z = %s)", computed_offset, min_z)
@@ -828,27 +832,27 @@ def convert_urdf_to_mjcf(
     # Save the initial MJCF file
     print(f"Saving initial MJCF file to {mjcf_path}")
     save_xml(mjcf_path, ET.ElementTree(mjcf_root))
-    print(f"Added light...")
+    print("Added light...")
     add_light(mjcf_path)
     if collision_type == "decomposition":
-        print(f"Convex decomposition...")
+        print("Convex decomposition...")
         convex_decomposition(mjcf_path)
     elif collision_type == "convex_hull":
-        print(f"Convex hull generation...")
+        print("Convex hull generation...")
         convex_collision(mjcf_path)
 
-    print(f"Converting collision geometries to STL...")
+    print("Converting collision geometries to STL...")
     collision_to_stl(mjcf_path)
     if not collision_only:
-        print(f"Split OBJ files by materials...")
+        print("Split OBJ files by materials...")
         split_obj_by_materials(mjcf_path)  # Split OBJ files by materials
     print("Updating meshes...")
     update_mesh(mjcf_path, max_vertices)
-    print(f"Moving mesh scale attributes...")
+    print("Moving mesh scale attributes...")
     move_mesh_scale(mjcf_path)
-    print(f"Checking shell meshes...")
+    print("Checking shell meshes...")
     check_shell_meshes(mjcf_path)
-    print(f"Deduplicating mesh assets...")
+    print("Deduplicating mesh assets...")
     deduplicate_meshes(mjcf_path)
 
     # Apply post-processing steps
@@ -872,22 +876,24 @@ def convert_urdf_to_mjcf(
             class_name=explicit_contacts.class_name,
             floor_name=metadata.floor_name,
         )
-    
+
     if appendix_files is not None and len(appendix_files) > 0:
-        print(f"Adding appendix...")
+        print("Adding appendix...")
         for appendix_file in appendix_files:
             add_appendix(mjcf_path, appendix_file)
-    
+
     # Capture robot images
-    print(f"Capturing robot images...")
+    print("Capturing robot images...")
     try:
         from urdf2mjcf.postprocess.capture import capture_robot_images
+
         capture_robot_images(mjcf_path)
     except Exception as e:
         logger.warning(f"Failed to capture images: {e}")
         print(f"⚠️  Image capture failed: {e}")
-        print(f"   You can manually capture images later using:")
+        print("   You can manually capture images later using:")
         print(f"   python -m urdf2mjcf.postprocess.capture {mjcf_path}")
+
 
 def main() -> None:
     """Parse command-line arguments and execute the URDF to MJCF conversion."""
@@ -899,24 +905,27 @@ def main() -> None:
         help="The path to the URDF file.",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=str,
         help="The path to the output MJCF file.",
     )
     parser.add_argument(
         "--collision-only",
-        action="store_true", 
-        help="If true, use collision geometry without visual appearance for visual representation."
+        action="store_true",
+        help="If true, use collision geometry without visual appearance for visual representation.",
     )
     parser.add_argument(
-        "-cp", "--collision-type",
+        "-cp",
+        "--collision-type",
         type=str,
         # 保持原样mesh，进行凸分解，进行凸包络
         choices=["mesh", "decomposition", "convex_hull"],
-        help="The type of collision geometry to use."
+        help="The type of collision geometry to use.",
     )
     parser.add_argument(
-        "-m", "--metadata",
+        "-m",
+        "--metadata",
         type=str,
         default=None,
         help="A JSON file containing conversion metadata (joint params and sensors).",
@@ -924,21 +933,21 @@ def main() -> None:
     parser.add_argument(
         "-dm",
         "--default-metadata",
-        nargs='*',
+        nargs="*",
         default=None,
         help="JSON files containing default metadata. Multiple files will be merged, with later files overriding earlier ones.",
     )
     parser.add_argument(
         "-am",
         "--actuator-metadata",
-        nargs='*',
+        nargs="*",
         default=None,
         help="JSON files containing actuator metadata. Multiple files will be merged, with later files overriding earlier ones.",
     )
     parser.add_argument(
         "-a",
         "--appendix",
-        nargs='*',
+        nargs="*",
         default=None,
         help="XML files containing appendix. Multiple files will be applied in order.",
     )
@@ -971,7 +980,7 @@ def main() -> None:
                 logger.warning("Failed to load default metadata from %s: %s", metadata_file, e)
                 traceback.print_exc()
                 exit(1)
-    
+
     if not default_metadata:
         default_metadata = None
 
@@ -989,7 +998,7 @@ def main() -> None:
                 logger.warning("Failed to load actuator metadata from %s: %s", metadata_file, e)
                 traceback.print_exc()
                 exit(1)
-    
+
     if not actuator_metadata:
         actuator_metadata = None
 
@@ -999,11 +1008,14 @@ def main() -> None:
         metadata_file=args.metadata,
         default_metadata=default_metadata,
         actuator_metadata=actuator_metadata,
-        appendix_files=[Path(appendix_file) for appendix_file in args.appendix] if args.appendix is not None and len(args.appendix) > 0 else None,
+        appendix_files=[Path(appendix_file) for appendix_file in args.appendix]
+        if args.appendix is not None and len(args.appendix) > 0
+        else None,
         max_vertices=args.max_vertices,
         collision_only=args.collision_only,
-        collision_type=args.collision_type
+        collision_type=args.collision_type,
     )
+
 
 if __name__ == "__main__":
     main()

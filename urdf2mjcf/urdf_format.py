@@ -1,6 +1,6 @@
+import argparse
 import os
 import shutil
-import argparse
 import xml.dom.minidom as minidom
 
 parser = argparse.ArgumentParser()
@@ -15,7 +15,7 @@ if os.path.exists(tmp_urdf_path):
 
 xmlDoc = minidom.parse(urdf_path)
 
-with open(tmp_urdf_path, 'w') as fp:
+with open(tmp_urdf_path, "w") as fp:
     xmlDoc.writexml(fp)
 
 shutil.move(tmp_urdf_path, urdf_path)

@@ -1,8 +1,8 @@
 """Materials and MTL processing utilities."""
 
-import shutil
 import logging
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 # MTL fields relevant to MuJoCo
 MTL_FIELDS = (
-    "Ns",   # Shininess / 镜面反射指数
-    "Ka",   # Ambient color / 基础光颜色
-    "Kd",   # Diffuse color / 漫反射颜色
-    "Ks",   # Specular color / 镜面反射颜色
-    "Ke",   # Emissive color / 自发光颜色
-    "Ni",   # Optical density / 折射率
-    "d",    # Transparency (alpha) / 透明度
-    "Tr",   # 1 - transparency / 1 - 透明度
+    "Ns",  # Shininess / 镜面反射指数
+    "Ka",  # Ambient color / 基础光颜色
+    "Kd",  # Diffuse color / 漫反射颜色
+    "Ks",  # Specular color / 镜面反射颜色
+    "Ke",  # Emissive color / 自发光颜色
+    "Ni",  # Optical density / 折射率
+    "d",  # Transparency (alpha) / 透明度
+    "Tr",  # 1 - transparency / 1 - 透明度
     "map_Kd",  # Diffuse texture map
 )
 
@@ -26,7 +26,7 @@ MTL_FIELDS = (
 @dataclass
 class Material:
     """A convenience class for constructing MuJoCo materials from MTL files."""
-    
+
     name: str
     Ns: Optional[str] = None
     Ka: Optional[str] = None
@@ -65,9 +65,9 @@ class Material:
     def mjcf_shininess(self) -> str:
         """Convert shininess value to MJCF format."""
         if self.Ns is not None:
-            f_ns = float(self.Ns) 
+            f_ns = float(self.Ns)
             # Normalize Ns value to [0, 1]. Ns values normally range from 0 to 1000.
-            Ns = f_ns / 1_000 if f_ns > 1. else f_ns
+            Ns = f_ns / 1_000 if f_ns > 1.0 else f_ns
         else:
             Ns = 0.5
         return f"{Ns}"
@@ -95,36 +95,36 @@ def parse_mtl_name(lines: Sequence[str]) -> Optional[str]:
 
 def get_obj_material_info(obj_file: Path) -> tuple[bool, str | None]:
     """Get material information from an OBJ file.
-    
+
     Args:
         obj_file: Path to the OBJ file
-        
+
     Returns:
         Tuple of (has_single_material, material_name)
         - has_single_material: True if the OBJ has exactly one material
         - material_name: The material name if single material, None otherwise
     """
-    if not obj_file.exists() or not obj_file.suffix.lower() == '.obj':
+    if not obj_file.exists() or not obj_file.suffix.lower() == ".obj":
         return False, None
-        
+
     try:
         with obj_file.open("r") as f:
             lines = f.readlines()
-            
+
         # Check for MTL file reference
         mtl_name = parse_mtl_name(lines)
         if mtl_name is None:
             return False, None
-            
+
         # Check if MTL file exists
         mtl_file = obj_file.parent / mtl_name
         if not mtl_file.exists():
             return False, None
-            
+
         # Parse MTL file to count materials
         with open(mtl_file, "r") as f:
             mtl_lines = f.readlines()
-            
+
         # Count material definitions
         material_names = []
         for line in mtl_lines:
@@ -132,20 +132,21 @@ def get_obj_material_info(obj_file: Path) -> tuple[bool, str | None]:
             if line.startswith("newmtl "):
                 material_name = line.split()[1]
                 material_names.append(material_name)
-                
+
         # Return info about single material
         if len(material_names) == 1:
             return True, material_names[0]
         else:
             return False, None
-            
+
     except Exception as e:
         logger.warning(f"Failed to analyze OBJ material info for {obj_file}: {e}")
         return False, None
 
+
 def copy_obj_with_mtl(obj_source: Path, obj_target: Path) -> None:
     """Copy OBJ file and its associated MTL file if it exists.
-    
+
     Args:
         obj_source: Source OBJ file path
         obj_target: Target OBJ file path
@@ -153,19 +154,19 @@ def copy_obj_with_mtl(obj_source: Path, obj_target: Path) -> None:
     # Copy the OBJ file
     obj_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(obj_source, obj_target)
-    
+
     # Check for MTL file and copy it if it exists
     try:
-        with open(obj_source, 'r') as f:
+        with open(obj_source, "r") as f:
             lines = f.readlines()
-        
+
         # Look for mtllib directive
         for line in lines:
-            if line.strip().startswith('mtllib '):
+            if line.strip().startswith("mtllib "):
                 mtl_filename = line.strip().split()[1]
                 mtl_source = obj_source.parent / mtl_filename
                 mtl_target = obj_target.parent / mtl_filename
-                
+
                 if mtl_source.exists():
                     shutil.copy2(mtl_source, mtl_target)
                     logger.info(f"Copied MTL file: {mtl_source} -> {mtl_target}")

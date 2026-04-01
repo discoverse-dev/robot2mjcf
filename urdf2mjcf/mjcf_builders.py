@@ -4,8 +4,8 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from urdf2mjcf.model import DefaultJointMetadata, ConversionMetadata
 from urdf2mjcf.materials import Material
+from urdf2mjcf.model import ConversionMetadata, DefaultJointMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ def add_compiler(root: ET.Element) -> None:
     attrib = {
         "angle": "radian",
         "meshdir": ".",
-        "balanceinertia": "true"
+        "balanceinertia": "true",
         # "eulerseq": "zyx",
         # "autolimits": "true",
     }
@@ -190,6 +190,7 @@ def add_weld_constraints(root: ET.Element, metadata: ConversionMetadata) -> None
             },
         )
 
+
 def add_option(root: ET.Element) -> None:
     """Add an option element to the MJCF root.
 
@@ -225,11 +226,9 @@ def add_visual(root: ET.Element) -> None:
     ET.SubElement(
         visual,
         "global",
-        attrib={
-            "offwidth": "3840",
-            "offheight": "2160"
-        },
+        attrib={"offwidth": "3840", "offheight": "2160"},
     )
+
 
 def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[str, Material] = None) -> None:
     """Add texture and material assets to the MJCF root.
@@ -251,7 +250,7 @@ def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[
                 # "specular": material.mjcf_specular(),
                 # "shininess": material.mjcf_shininess(),
             }
-            
+
             if material.map_Kd is not None:
                 # Create texture asset for diffuse map
                 texture_name = Path(material.map_Kd).stem
@@ -269,7 +268,7 @@ def add_assets(root: ET.Element, materials: dict[str, str], mtl_materials: dict[
             else:
                 # Use RGBA if no texture
                 material_attrib["rgba"] = material.mjcf_rgba()
-                
+
             ET.SubElement(asset, "material", attrib=material_attrib)
             logger.info(f"Added MTL material: {material.name}")
 

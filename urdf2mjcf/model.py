@@ -27,6 +27,7 @@ class dJoint(BaseModel):
     damping: float | None = None
     frictionloss: float | None = None
 
+
 class dActuator(BaseModel):
     actuator_type: str | None = None
     kp: float | None = None
@@ -34,6 +35,7 @@ class dActuator(BaseModel):
     gear: float | None = None
     ctrlrange: list[float] | None = None
     forcerange: list[float] | None = None
+
 
 class DefaultJointMetadata(BaseModel):
     joint: dJoint
@@ -45,6 +47,7 @@ class DefaultJointMetadata(BaseModel):
         joint = dJoint.model_validate(data["joint"])
         actuator = dActuator.model_validate(data["actuator"])
         return cls(joint=joint, actuator=actuator)
+
 
 class ActuatorMetadata(BaseModel):
     joint_class: str | None = None
@@ -60,12 +63,14 @@ class ActuatorMetadata(BaseModel):
         """Create JointParam from a plain dictionary."""
         return cls(**data)
 
+
 class SiteMetadata(BaseModel):
     name: str
     body_name: str
     site_type: SiteType | None = None
     size: list[float] | None = None
     pos: list[float] | None = None
+
 
 class ImuSensor(BaseModel):
     body_name: str

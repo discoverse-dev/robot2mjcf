@@ -8,9 +8,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from xml.dom import minidom
 
+
 def sort_body_elements(element: ET.Element) -> None:
     """Sort child elements in body elements according to MJCF conventions.
-    
+
     The order should be: inertial, joint, geom (all geoms), body (all bodies).
 
     Args:
@@ -19,7 +20,7 @@ def sort_body_elements(element: ET.Element) -> None:
     if element.tag == "body":
         # Define the desired order
         order = ["inertial", "joint", "geom", "body"]
-        
+
         # Group children by tag
         children_by_tag = {}
         for child in element:
@@ -27,23 +28,23 @@ def sort_body_elements(element: ET.Element) -> None:
             if tag not in children_by_tag:
                 children_by_tag[tag] = []
             children_by_tag[tag].append(child)
-        
+
         # Remove all child elements (but keep attributes)
         for child in list(element):
             element.remove(child)
-        
+
         # Re-add children in the desired order
         for tag in order:
             if tag in children_by_tag:
                 for child in children_by_tag[tag]:
                     element.append(child)
-        
+
         # Add any remaining children that weren't in our order list
         for tag, children in children_by_tag.items():
             if tag not in order:
                 for child in children:
                     element.append(child)
-    
+
     # Recursively process all child elements
     for child in element:
         sort_body_elements(child)

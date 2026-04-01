@@ -32,6 +32,7 @@ def add_default_lights(root: ET.Element) -> None:
         attrib={"pos": "0 0 2.", "dir": "0 0 -1", "directional": "true"},
     )
 
+
 def add_light(mjcf_path: str | Path) -> None:
     """Add default lights to the MJCF file.
 

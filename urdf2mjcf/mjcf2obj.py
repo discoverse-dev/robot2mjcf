@@ -27,9 +27,9 @@ from typing import Dict, Iterable, List, Tuple
 import numpy as np
 
 try:
-	import pymeshlab
+    import pymeshlab
 except ImportError as exc:  # pragma: no cover - dependency error path
-	raise SystemExit("pymeshlab is required to run mjcf2obj.py") from exc
+    raise SystemExit("pymeshlab is required to run mjcf2obj.py") from exc
 
 
 logger = logging.getLogger(__name__)
@@ -40,24 +40,24 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_floats(
-	value: str | None,
-	expected: int | None = None,
-	*,
-	default: Iterable[float] | None = None,
+    value: str | None,
+    expected: int | None = None,
+    *,
+    default: Iterable[float] | None = None,
 ) -> np.ndarray:
-	"""Parse a whitespace separated float sequence."""
+    """Parse a whitespace separated float sequence."""
 
-	if value is None:
-		if default is None:
-			raise ValueError("Expected float sequence but value is None")
-		elems = list(default)
-	else:
-		elems = [float(x) for x in value.strip().split()]
+    if value is None:
+        if default is None:
+            raise ValueError("Expected float sequence but value is None")
+        elems = list(default)
+    else:
+        elems = [float(x) for x in value.strip().split()]
 
-	if expected is not None and len(elems) != expected:
-		raise ValueError(f"Expected {expected} floats, got {len(elems)} from '{value}'")
+    if expected is not None and len(elems) != expected:
+        raise ValueError(f"Expected {expected} floats, got {len(elems)} from '{value}'")
 
-	return np.asarray(elems, dtype=float)
+    return np.asarray(elems, dtype=float)
 
 
 # ---------------------------------------------------------------------------
@@ -65,57 +65,57 @@ def _parse_floats(
 
 
 def _sanitize_name(name: str | None, fallback: str, used: set[str]) -> str:
-	candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "") or fallback
-	base = candidate
-	suffix = 1
-	while candidate in used:
-		candidate = f"{base}_{suffix}"
-		suffix += 1
-	used.add(candidate)
-	return candidate
+    candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "") or fallback
+    base = candidate
+    suffix = 1
+    while candidate in used:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
 
 
 def _gather_assets(
-	root: ET.Element,
-	mjcf_path: Path,
+    root: ET.Element,
+    mjcf_path: Path,
 ) -> Tuple[Dict[str, Path], Dict[str, Dict[str, str]], Dict[str, Dict[str, str]]]:
-	"""Collect mesh, material, and texture assets from the MJCF tree."""
+    """Collect mesh, material, and texture assets from the MJCF tree."""
 
-	compiler = root.find("compiler")
-	meshdir_attr = compiler.attrib.get("meshdir", ".") if compiler is not None else "."
-	meshdir = (mjcf_path.parent / meshdir_attr).resolve()
+    compiler = root.find("compiler")
+    meshdir_attr = compiler.attrib.get("meshdir", ".") if compiler is not None else "."
+    meshdir = (mjcf_path.parent / meshdir_attr).resolve()
 
-	mesh_map: Dict[str, Path] = {}
-	material_map: Dict[str, Dict[str, str]] = {}
-	texture_map: Dict[str, Dict[str, str]] = {}
+    mesh_map: Dict[str, Path] = {}
+    material_map: Dict[str, Dict[str, str]] = {}
+    texture_map: Dict[str, Dict[str, str]] = {}
 
-	asset_elems = root.findall("asset")
-	if not asset_elems:
-		logger.warning("No <asset> section found in MJCF; mesh exports may fail")
-		return mesh_map, material_map, texture_map
+    asset_elems = root.findall("asset")
+    if not asset_elems:
+        logger.warning("No <asset> section found in MJCF; mesh exports may fail")
+        return mesh_map, material_map, texture_map
 
-	for asset_elem in asset_elems:
-		for mesh in asset_elem.findall("mesh"):
-			name = mesh.attrib.get("name")
-			file_attr = mesh.attrib.get("file")
-			if not name or not file_attr:
-				continue
-			mesh_map[name] = (meshdir / file_attr).resolve()
+    for asset_elem in asset_elems:
+        for mesh in asset_elem.findall("mesh"):
+            name = mesh.attrib.get("name")
+            file_attr = mesh.attrib.get("file")
+            if not name or not file_attr:
+                continue
+            mesh_map[name] = (meshdir / file_attr).resolve()
 
-		for texture in asset_elem.findall("texture"):
-			name = texture.attrib.get("name")
-			file_attr = texture.attrib.get("file")
-			if not name or not file_attr:
-				continue
-			texture_map[name] = {"file": str((meshdir / file_attr).resolve()), **texture.attrib}
+        for texture in asset_elem.findall("texture"):
+            name = texture.attrib.get("name")
+            file_attr = texture.attrib.get("file")
+            if not name or not file_attr:
+                continue
+            texture_map[name] = {"file": str((meshdir / file_attr).resolve()), **texture.attrib}
 
-		for material in asset_elem.findall("material"):
-			name = material.attrib.get("name")
-			if not name:
-				continue
-			material_map[name] = {**material.attrib}
+        for material in asset_elem.findall("material"):
+            name = material.attrib.get("name")
+            if not name:
+                continue
+            material_map[name] = {**material.attrib}
 
-	return mesh_map, material_map, texture_map
+    return mesh_map, material_map, texture_map
 
 
 # ---------------------------------------------------------------------------
@@ -123,56 +123,56 @@ def _gather_assets(
 
 
 def _write_obj(
-	obj_path: Path,
-	mtl_filename: str,
-	vertices: List[Tuple[float, float, float]],
-	faces: List[Tuple[int, int, int]],
-	face_materials: List[str],
+    obj_path: Path,
+    mtl_filename: str,
+    vertices: List[Tuple[float, float, float]],
+    faces: List[Tuple[int, int, int]],
+    face_materials: List[str],
 ) -> None:
-	obj_path.parent.mkdir(parents=True, exist_ok=True)
-	with obj_path.open("w", encoding="utf-8") as obj_file:
-		obj_file.write("# Generated by mjcf2obj\n")
-		obj_file.write(f"mtllib {mtl_filename}\n")
-		obj_file.write(f"o {obj_path.stem}\n")
+    obj_path.parent.mkdir(parents=True, exist_ok=True)
+    with obj_path.open("w", encoding="utf-8") as obj_file:
+        obj_file.write("# Generated by mjcf2obj\n")
+        obj_file.write(f"mtllib {mtl_filename}\n")
+        obj_file.write(f"o {obj_path.stem}\n")
 
-		for x, y, z in vertices:
-			obj_file.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+        for x, y, z in vertices:
+            obj_file.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
 
-		current_material = None
-		for material, face in zip(face_materials, faces):
-			if material != current_material:
-				obj_file.write(f"usemtl {material}\n")
-				current_material = material
-			obj_file.write(f"f {face[0]} {face[1]} {face[2]}\n")
+        current_material = None
+        for material, face in zip(face_materials, faces):
+            if material != current_material:
+                obj_file.write(f"usemtl {material}\n")
+                current_material = material
+            obj_file.write(f"f {face[0]} {face[1]} {face[2]}\n")
 
 
 def _write_mtl(
-	mtl_path: Path,
-	materials: Dict[str, Dict[str, str]],
+    mtl_path: Path,
+    materials: Dict[str, Dict[str, str]],
 ) -> None:
-	mtl_path.parent.mkdir(parents=True, exist_ok=True)
-	with mtl_path.open("w", encoding="utf-8") as mtl_file:
-		mtl_file.write("# Generated by mjcf2obj\n")
-		for name, props in materials.items():
-			rgba = _parse_floats(props.get("rgba"), expected=4, default=(0.7, 0.7, 0.7, 1.0))
-			specular = float(props.get("specular", 0.0))
-			shininess = float(props.get("shininess", 0.5))
-			emission = float(props.get("emission", 0.0))
+    mtl_path.parent.mkdir(parents=True, exist_ok=True)
+    with mtl_path.open("w", encoding="utf-8") as mtl_file:
+        mtl_file.write("# Generated by mjcf2obj\n")
+        for name, props in materials.items():
+            rgba = _parse_floats(props.get("rgba"), expected=4, default=(0.7, 0.7, 0.7, 1.0))
+            specular = float(props.get("specular", 0.0))
+            shininess = float(props.get("shininess", 0.5))
+            emission = float(props.get("emission", 0.0))
 
-			mtl_file.write(f"newmtl {name}\n")
-			mtl_file.write(f"Ka {rgba[0] * 0.1:.4f} {rgba[1] * 0.1:.4f} {rgba[2] * 0.1:.4f}\n")
-			mtl_file.write(f"Kd {rgba[0]:.4f} {rgba[1]:.4f} {rgba[2]:.4f}\n")
-			mtl_file.write(f"Ks {specular:.4f} {specular:.4f} {specular:.4f}\n")
-			mtl_file.write(f"Ns {min(max(shininess * 128.0, 1.0), 1000.0):.4f}\n")
-			mtl_file.write(f"d {rgba[3]:.4f}\n")
-			if emission > 0.0:
-				mtl_file.write(f"Ke {emission:.4f} {emission:.4f} {emission:.4f}\n")
+            mtl_file.write(f"newmtl {name}\n")
+            mtl_file.write(f"Ka {rgba[0] * 0.1:.4f} {rgba[1] * 0.1:.4f} {rgba[2] * 0.1:.4f}\n")
+            mtl_file.write(f"Kd {rgba[0]:.4f} {rgba[1]:.4f} {rgba[2]:.4f}\n")
+            mtl_file.write(f"Ks {specular:.4f} {specular:.4f} {specular:.4f}\n")
+            mtl_file.write(f"Ns {min(max(shininess * 128.0, 1.0), 1000.0):.4f}\n")
+            mtl_file.write(f"d {rgba[3]:.4f}\n")
+            if emission > 0.0:
+                mtl_file.write(f"Ke {emission:.4f} {emission:.4f} {emission:.4f}\n")
 
-			texture_file = props.get("texture_file")
-			if texture_file:
-				mtl_file.write(f"map_Kd {texture_file}\n")
+            texture_file = props.get("texture_file")
+            if texture_file:
+                mtl_file.write(f"map_Kd {texture_file}\n")
 
-			mtl_file.write("\n")
+            mtl_file.write("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -180,238 +180,238 @@ def _write_mtl(
 
 
 def _material_properties(
-	asset_props: Dict[str, str],
-	texture_assets: Dict[str, Dict[str, str]],
+    asset_props: Dict[str, str],
+    texture_assets: Dict[str, Dict[str, str]],
 ) -> Dict[str, str]:
-	props = {
-		"rgba": asset_props.get("rgba", "0.8 0.8 0.8 1.0"),
-		"specular": asset_props.get("specular", "0.0"),
-		"shininess": asset_props.get("shininess", "0.4"),
-		"emission": asset_props.get("emission", "0.0"),
-	}
-	texture_name = asset_props.get("texture")
-	if texture_name and texture_name in texture_assets:
-		props["texture_file"] = texture_assets[texture_name].get("file")
-	return props
+    props = {
+        "rgba": asset_props.get("rgba", "0.8 0.8 0.8 1.0"),
+        "specular": asset_props.get("specular", "0.0"),
+        "shininess": asset_props.get("shininess", "0.4"),
+        "emission": asset_props.get("emission", "0.0"),
+    }
+    texture_name = asset_props.get("texture")
+    if texture_name and texture_name in texture_assets:
+        props["texture_file"] = texture_assets[texture_name].get("file")
+    return props
 
 
 def _common_relative_dir(paths: List[Path], root: Path) -> Path:
-	"""Compute the deepest common subdirectory of the given paths relative to root.
+    """Compute the deepest common subdirectory of the given paths relative to root.
 
-	If none of the paths are under root, returns Path('.') (no subdirectory).
-	"""
-	rel_parts: List[List[str]] = []
-	for p in paths:
-		try:
-			rel = p.parent.resolve().relative_to(root.resolve())
-		except Exception:
-			# Skip paths not under root
-			continue
-		rel_parts.append(list(rel.parts))
+    If none of the paths are under root, returns Path('.') (no subdirectory).
+    """
+    rel_parts: List[List[str]] = []
+    for p in paths:
+        try:
+            rel = p.parent.resolve().relative_to(root.resolve())
+        except Exception:
+            # Skip paths not under root
+            continue
+        rel_parts.append(list(rel.parts))
 
-	if not rel_parts:
-		return Path(".")
+    if not rel_parts:
+        return Path(".")
 
-	# Find common prefix of parts
-	common: List[str] = []
-	for parts in zip(*rel_parts):
-		if all(segment == parts[0] for segment in parts):
-			common.append(parts[0])
-		else:
-			break
+    # Find common prefix of parts
+    common: List[str] = []
+    for parts in zip(*rel_parts):
+        if all(segment == parts[0] for segment in parts):
+            common.append(parts[0])
+        else:
+            break
 
-	return Path(*common) if common else Path(".")
+    return Path(*common) if common else Path(".")
 
 
 def _load_mesh(
-	mesh_path: Path,
+    mesh_path: Path,
 ) -> Tuple[np.ndarray, np.ndarray]:
-	ms = pymeshlab.MeshSet()
-	ms.load_new_mesh(str(mesh_path))
+    ms = pymeshlab.MeshSet()
+    ms.load_new_mesh(str(mesh_path))
 
-	vertices = np.asarray(ms.current_mesh().vertex_matrix(), dtype=float)
-	faces = np.asarray(ms.current_mesh().face_matrix(), dtype=int)
+    vertices = np.asarray(ms.current_mesh().vertex_matrix(), dtype=float)
+    faces = np.asarray(ms.current_mesh().face_matrix(), dtype=int)
 
-	if vertices.size == 0 or faces.size == 0:
-		return np.empty((0, 3)), np.empty((0, 3), dtype=int)
+    if vertices.size == 0 or faces.size == 0:
+        return np.empty((0, 3)), np.empty((0, 3), dtype=int)
 
-	if faces.shape[1] != 3:
-		try:
-			ms.apply_filter("meshing_triangulation_quad_dominant")
-			faces = np.asarray(ms.current_mesh().face_matrix(), dtype=int)
-		except RuntimeError:
-			logger.warning("Failed to triangulate mesh '%s'; skipping", mesh_path)
-			return np.empty((0, 3)), np.empty((0, 3), dtype=int)
+    if faces.shape[1] != 3:
+        try:
+            ms.apply_filter("meshing_triangulation_quad_dominant")
+            faces = np.asarray(ms.current_mesh().face_matrix(), dtype=int)
+        except RuntimeError:
+            logger.warning("Failed to triangulate mesh '%s'; skipping", mesh_path)
+            return np.empty((0, 3)), np.empty((0, 3), dtype=int)
 
-	return vertices, faces
+    return vertices, faces
 
 
 def _collect_body_geoms(
-	body_elem: ET.Element,
-	mesh_assets: Dict[str, Path],
-	material_assets: Dict[str, Dict[str, str]],
-	texture_assets: Dict[str, Dict[str, str]],
-	*,
-	default_material_prefix: str,
-	material_defs: Dict[str, Dict[str, str]],
-	material_export_names: Dict[str, str],
+    body_elem: ET.Element,
+    mesh_assets: Dict[str, Path],
+    material_assets: Dict[str, Dict[str, str]],
+    texture_assets: Dict[str, Dict[str, str]],
+    *,
+    default_material_prefix: str,
+    material_defs: Dict[str, Dict[str, str]],
+    material_export_names: Dict[str, str],
 ) -> Tuple[str, List[Dict[str, object]]]:
-	body_name = body_elem.attrib.get("name") or "unnamed_body"
+    body_name = body_elem.attrib.get("name") or "unnamed_body"
 
-	geoms: List[Dict[str, object]] = []
+    geoms: List[Dict[str, object]] = []
 
-	for geom in body_elem.findall("geom"):
-		geom_type = geom.attrib.get("type", "mesh")
-		if geom_type != "mesh":
-			continue
+    for geom in body_elem.findall("geom"):
+        geom_type = geom.attrib.get("type", "mesh")
+        if geom_type != "mesh":
+            continue
 
-		mesh_name = geom.attrib.get("mesh")
-		if not mesh_name:
-			logger.warning("Mesh geom without 'mesh' attribute in body '%s'", body_name)
-			continue
+        mesh_name = geom.attrib.get("mesh")
+        if not mesh_name:
+            logger.warning("Mesh geom without 'mesh' attribute in body '%s'", body_name)
+            continue
 
-		mesh_path = mesh_assets.get(mesh_name)
-		if mesh_path is None or not mesh_path.exists():
-			logger.warning("Mesh '%s' in body '%s' not found at '%s'", mesh_name, body_name, mesh_path)
-			continue
+        mesh_path = mesh_assets.get(mesh_name)
+        if mesh_path is None or not mesh_path.exists():
+            logger.warning("Mesh '%s' in body '%s' not found at '%s'", mesh_name, body_name, mesh_path)
+            continue
 
-		geom_name = geom.attrib.get("name") or mesh_name
-		material_attr = geom.attrib.get("material")
+        geom_name = geom.attrib.get("name") or mesh_name
+        material_attr = geom.attrib.get("material")
 
-		if material_attr and material_attr in material_assets:
-			export_name = material_export_names.setdefault(
-				material_attr,
-				_sanitize_name(material_attr, material_attr, set(material_export_names.values())),
-			)
-			if export_name not in material_defs:
-				material_defs[export_name] = _material_properties(material_assets[material_attr], texture_assets)
-		else:
-			fallback_name = f"{default_material_prefix}_{geom_name}_mat"
-			export_name = _sanitize_name(fallback_name, fallback_name, set(material_defs.keys()))
-			if export_name not in material_defs:
-				material_defs[export_name] = {
-					"rgba": geom.attrib.get("rgba", "0.8 0.8 0.8 1.0"),
-					"specular": geom.attrib.get("specular", "0.0"),
-					"shininess": geom.attrib.get("shininess", "0.4"),
-				}
+        if material_attr and material_attr in material_assets:
+            export_name = material_export_names.setdefault(
+                material_attr,
+                _sanitize_name(material_attr, material_attr, set(material_export_names.values())),
+            )
+            if export_name not in material_defs:
+                material_defs[export_name] = _material_properties(material_assets[material_attr], texture_assets)
+        else:
+            fallback_name = f"{default_material_prefix}_{geom_name}_mat"
+            export_name = _sanitize_name(fallback_name, fallback_name, set(material_defs.keys()))
+            if export_name not in material_defs:
+                material_defs[export_name] = {
+                    "rgba": geom.attrib.get("rgba", "0.8 0.8 0.8 1.0"),
+                    "specular": geom.attrib.get("specular", "0.0"),
+                    "shininess": geom.attrib.get("shininess", "0.4"),
+                }
 
-		geoms.append(
-			{
-				"geom_name": geom_name,
-				"mesh_path": mesh_path,
-				"material": export_name,
-			}
-		)
+        geoms.append(
+            {
+                "geom_name": geom_name,
+                "mesh_path": mesh_path,
+                "material": export_name,
+            }
+        )
 
-	return body_name, geoms
+    return body_name, geoms
 
 
 def _export_body(
-	body_elem: ET.Element,
-	*,
-	output_dir: Path,
-	mesh_root: Path,
-	mesh_assets: Dict[str, Path],
-	material_assets: Dict[str, Dict[str, str]],
-	texture_assets: Dict[str, Dict[str, str]],
-	body_name_usage: set[str],
-	material_export_names: Dict[str, str],
+    body_elem: ET.Element,
+    *,
+    output_dir: Path,
+    mesh_root: Path,
+    mesh_assets: Dict[str, Path],
+    material_assets: Dict[str, Dict[str, str]],
+    texture_assets: Dict[str, Dict[str, str]],
+    body_name_usage: set[str],
+    material_export_names: Dict[str, str],
 ) -> int:
-	default_material_prefix = (body_elem.attrib.get("name") or "body").replace(" ", "_")
-	material_defs: Dict[str, Dict[str, str]] = {}
+    default_material_prefix = (body_elem.attrib.get("name") or "body").replace(" ", "_")
+    material_defs: Dict[str, Dict[str, str]] = {}
 
-	body_name, geoms = _collect_body_geoms(
-		body_elem,
-		mesh_assets=mesh_assets,
-		material_assets=material_assets,
-		texture_assets=texture_assets,
-		default_material_prefix=default_material_prefix,
-		material_defs=material_defs,
-		material_export_names=material_export_names,
-	)
+    body_name, geoms = _collect_body_geoms(
+        body_elem,
+        mesh_assets=mesh_assets,
+        material_assets=material_assets,
+        texture_assets=texture_assets,
+        default_material_prefix=default_material_prefix,
+        material_defs=material_defs,
+        material_export_names=material_export_names,
+    )
 
-	exported = 0
-	if geoms:
-		safe_body_name = _sanitize_name(body_name, "body", body_name_usage)
+    exported = 0
+    if geoms:
+        safe_body_name = _sanitize_name(body_name, "body", body_name_usage)
 
-		# 保持原有的文件路径结构：将导出文件放在 output_dir 下，
-		# 并附加所有来源 mesh 文件在 mesh_root 下的共同相对子目录。
-		source_paths: List[Path] = [g["mesh_path"] for g in geoms]  # type: ignore[index]
-		common_rel = _common_relative_dir(source_paths, mesh_root)
-		target_dir = (output_dir / common_rel).resolve()
+        # 保持原有的文件路径结构：将导出文件放在 output_dir 下，
+        # 并附加所有来源 mesh 文件在 mesh_root 下的共同相对子目录。
+        source_paths: List[Path] = [g["mesh_path"] for g in geoms]  # type: ignore[index]
+        common_rel = _common_relative_dir(source_paths, mesh_root)
+        target_dir = (output_dir / common_rel).resolve()
 
-		obj_path = target_dir / f"{safe_body_name}.obj"
-		mtl_path = target_dir / f"{safe_body_name}.mtl"
+        obj_path = target_dir / f"{safe_body_name}.obj"
+        mtl_path = target_dir / f"{safe_body_name}.mtl"
 
-		vertices: List[Tuple[float, float, float]] = []
-		faces: List[Tuple[int, int, int]] = []
-		face_materials: List[str] = []
+        vertices: List[Tuple[float, float, float]] = []
+        faces: List[Tuple[int, int, int]] = []
+        face_materials: List[str] = []
 
-		for geom in geoms:
-			geom_vertices, geom_faces = _load_mesh(geom["mesh_path"])
+        for geom in geoms:
+            geom_vertices, geom_faces = _load_mesh(geom["mesh_path"])
 
-			if geom_vertices.size == 0 or geom_faces.size == 0:
-				logger.warning("Skipping empty mesh '%s' in body '%s'", geom["geom_name"], body_name)
-				continue
+            if geom_vertices.size == 0 or geom_faces.size == 0:
+                logger.warning("Skipping empty mesh '%s' in body '%s'", geom["geom_name"], body_name)
+                continue
 
-			vertex_offset = len(vertices)
-			vertices.extend(map(tuple, geom_vertices))
+            vertex_offset = len(vertices)
+            vertices.extend(map(tuple, geom_vertices))
 
-			for face in geom_faces:
-				faces.append(tuple(int(idx) + 1 + vertex_offset for idx in face))
-				face_materials.append(str(geom["material"]))
+            for face in geom_faces:
+                faces.append(tuple(int(idx) + 1 + vertex_offset for idx in face))
+                face_materials.append(str(geom["material"]))
 
-		if vertices and faces:
-			_write_obj(obj_path, mtl_path.name, vertices, faces, face_materials)
-			_write_mtl(mtl_path, material_defs)
-			exported += 1
-		else:
-			logger.info("Body '%s' contains no valid mesh geometry; skipping OBJ export", body_name)
+        if vertices and faces:
+            _write_obj(obj_path, mtl_path.name, vertices, faces, face_materials)
+            _write_mtl(mtl_path, material_defs)
+            exported += 1
+        else:
+            logger.info("Body '%s' contains no valid mesh geometry; skipping OBJ export", body_name)
 
-	for child in body_elem.findall("body"):
-		exported += _export_body(
-			child,
-			output_dir=output_dir,
-			mesh_root=mesh_root,
-			mesh_assets=mesh_assets,
-			material_assets=material_assets,
-			texture_assets=texture_assets,
-			body_name_usage=body_name_usage,
-			material_export_names=material_export_names,
-		)
+    for child in body_elem.findall("body"):
+        exported += _export_body(
+            child,
+            output_dir=output_dir,
+            mesh_root=mesh_root,
+            mesh_assets=mesh_assets,
+            material_assets=material_assets,
+            texture_assets=texture_assets,
+            body_name_usage=body_name_usage,
+            material_export_names=material_export_names,
+        )
 
-	return exported
+    return exported
 
 
 def export_mjcf_bodies(mjcf_path: Path, output_dir: Path) -> None:
-	tree = ET.parse(mjcf_path)
-	root = tree.getroot()
+    tree = ET.parse(mjcf_path)
+    root = tree.getroot()
 
-	mesh_assets, material_assets, texture_assets = _gather_assets(root, mjcf_path)
-	compiler = root.find("compiler")
-	meshdir_attr = compiler.attrib.get("meshdir", ".") if compiler is not None else "."
-	mesh_root = (mjcf_path.parent / meshdir_attr).resolve()
-	worldbody = root.find("worldbody")
-	if worldbody is None:
-		raise ValueError("MJCF file does not contain a <worldbody> element")
+    mesh_assets, material_assets, texture_assets = _gather_assets(root, mjcf_path)
+    compiler = root.find("compiler")
+    meshdir_attr = compiler.attrib.get("meshdir", ".") if compiler is not None else "."
+    mesh_root = (mjcf_path.parent / meshdir_attr).resolve()
+    worldbody = root.find("worldbody")
+    if worldbody is None:
+        raise ValueError("MJCF file does not contain a <worldbody> element")
 
-	body_name_usage: set[str] = set()
-	material_export_names: Dict[str, str] = {}
+    body_name_usage: set[str] = set()
+    material_export_names: Dict[str, str] = {}
 
-	total_exported = 0
-	for body_elem in worldbody.findall("body"):
-		total_exported += _export_body(
-			body_elem,
-			output_dir=output_dir,
-			mesh_root=mesh_root,
-			mesh_assets=mesh_assets,
-			material_assets=material_assets,
-			texture_assets=texture_assets,
-			body_name_usage=body_name_usage,
-			material_export_names=material_export_names,
-		)
+    total_exported = 0
+    for body_elem in worldbody.findall("body"):
+        total_exported += _export_body(
+            body_elem,
+            output_dir=output_dir,
+            mesh_root=mesh_root,
+            mesh_assets=mesh_assets,
+            material_assets=material_assets,
+            texture_assets=texture_assets,
+            body_name_usage=body_name_usage,
+            material_export_names=material_export_names,
+        )
 
-	logger.info("Exported %d body OBJ files to '%s'", total_exported, output_dir)
+    logger.info("Exported %d body OBJ files to '%s'", total_exported, output_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -419,30 +419,30 @@ def export_mjcf_bodies(mjcf_path: Path, output_dir: Path) -> None:
 
 
 def _configure_logging(verbose: bool) -> None:
-	level = logging.DEBUG if verbose else logging.INFO
-	logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
 def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
-	parser = argparse.ArgumentParser(description="Export MJCF bodies to OBJ files")
-	parser.add_argument("mjcf_path", type=Path, help="Path to the MJCF (*.xml) file")
-	parser.add_argument("output_dir", type=Path, help="Directory where OBJ/MTL files will be stored")
-	parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-	return parser.parse_args(argv)
+    parser = argparse.ArgumentParser(description="Export MJCF bodies to OBJ files")
+    parser.add_argument("mjcf_path", type=Path, help="Path to the MJCF (*.xml) file")
+    parser.add_argument("output_dir", type=Path, help="Directory where OBJ/MTL files will be stored")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    return parser.parse_args(argv)
 
 
 def main(argv: List[str] | None = None) -> int:
-	args = parse_args(argv)
-	_configure_logging(args.verbose)
+    args = parse_args(argv)
+    _configure_logging(args.verbose)
 
-	try:
-		export_mjcf_bodies(args.mjcf_path.resolve(), args.output_dir.resolve())
-	except Exception as exc:  # pragma: no cover - runtime error reporting
-		logger.error("Failed to export MJCF bodies: %s", exc)
-		return 1
+    try:
+        export_mjcf_bodies(args.mjcf_path.resolve(), args.output_dir.resolve())
+    except Exception as exc:  # pragma: no cover - runtime error reporting
+        logger.error("Failed to export MJCF bodies: %s", exc)
+        return 1
 
-	return 0
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-	sys.exit(main())
+    sys.exit(main())

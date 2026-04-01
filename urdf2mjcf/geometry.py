@@ -1,12 +1,13 @@
 """Geometry processing and mathematical transformation utilities."""
 
-import math
 import logging
+import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ParsedJointParams:
@@ -32,6 +33,7 @@ class GeomElement:
     scale: str | None = None
     mesh: str | None = None
 
+
 # 将数值格式化为最多保留4位小数，去除末尾的多余0和小数点，且将 -0 统一为 0
 def format_value(val: float) -> str:
     """格式化数值为字符串。
@@ -51,12 +53,13 @@ def format_value(val: float) -> str:
     # 先用四位小数进行格式化（确保四舍五入）
     formatted = f"{val:.4f}"
     # 去除末尾的零
-    if '.' in formatted:
-        formatted = formatted.rstrip('0').rstrip('.')
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
     # 规范 -0 -> 0
-    if formatted in ('-0', '-0.0', '-0.00', '-0.000', '-0.0000', ''):
-        return '0'
+    if formatted in ("-0", "-0.0", "-0.00", "-0.000", "-0.0000", ""):
+        return "0"
     return formatted
+
 
 def parse_vector(s: str) -> list[float]:
     """Convert a string of space-separated numbers to a list of floats.
@@ -129,10 +132,10 @@ def mat_mult(mat_a: list[list[float]], mat_b: list[list[float]]) -> list[list[fl
 
 
 def compute_min_z(
-    body: ET.Element, 
+    body: ET.Element,
     parent_transform: list[list[float]] | None = None,
     mesh_file_paths: dict[str, Path] | None = None,
-    mesh_cache: dict[str, float] | None = None
+    mesh_cache: dict[str, float] | None = None,
 ) -> float:
     """Recursively computes the minimum Z value in the world frame.
 
@@ -156,7 +159,7 @@ def compute_min_z(
         ]
     if mesh_cache is None:
         mesh_cache = {}
-    
+
     pos_str: str = body.attrib.get("pos", "0 0 0")
     quat_str: str = body.attrib.get("quat", "1 0 0 0")
     body_tf: list[list[float]] = mat_mult(parent_transform, build_transform(pos_str, quat_str))
@@ -193,7 +196,7 @@ def compute_min_z(
                         mesh_cache[mesh_name] = mesh_min_z
                     else:
                         mesh_min_z = mesh_cache[mesh_name]
-                    
+
                     candidate = z + mesh_min_z
                 else:
                     # Fallback to conservative estimate if mesh not available
@@ -214,11 +217,11 @@ def compute_min_z(
 
 def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> float:
     """Compute the minimum Z value from a mesh file.
-    
+
     Args:
         mesh_file_path: Full path to the mesh file.
         scale_str: Optional scale string (e.g., "1 1 1").
-        
+
     Returns:
         The minimum Z value in the mesh's local frame.
     """
@@ -227,7 +230,7 @@ def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> f
     except ImportError:
         logger.warning("trimesh not available, using fallback for mesh min_z computation")
         return -0.2
-    
+
     if not mesh_file_path.exists():
         logger.warning(f"compute mesh z min: Mesh file not found: {mesh_file_path}")
         return 0.0
@@ -236,22 +239,24 @@ def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> f
 
     try:
         # Load the mesh
-        mesh = trimesh.load(str(mesh_file_path), force='mesh')
-        
+        mesh = trimesh.load(str(mesh_file_path), force="mesh")
+
         # Handle scale if provided
         if scale_str:
             scale_vals = list(map(float, scale_str.split()))
             if len(scale_vals) == 3:
-                scale_matrix = [[scale_vals[0], 0, 0, 0],
-                               [0, scale_vals[1], 0, 0],
-                               [0, 0, scale_vals[2], 0],
-                               [0, 0, 0, 1]]
+                scale_matrix = [
+                    [scale_vals[0], 0, 0, 0],
+                    [0, scale_vals[1], 0, 0],
+                    [0, 0, scale_vals[2], 0],
+                    [0, 0, 0, 1],
+                ]
                 mesh.apply_transform(scale_matrix)
             elif len(scale_vals) == 1:
                 mesh.apply_scale(scale_vals[0])
-        
+
         # Get minimum Z coordinate from vertices
-        if hasattr(mesh, 'vertices') and len(mesh.vertices) > 0:
+        if hasattr(mesh, "vertices") and len(mesh.vertices) > 0:
             min_z = float(mesh.vertices[:, 2].min())
             logger.info(f"Computed min_z for mesh '{mesh_file_path.name}': {min_z}")
             return min_z
@@ -280,5 +285,5 @@ def rpy_to_quat(rpy_str: str) -> str:
     qx = sr * cp * cy - cr * sp * sy
     qy = cr * sp * cy + sr * cp * sy
     qz = cr * cp * sy - sr * sp * cy
-    
-    return f"{format_value(qw)} {format_value(qx)} {format_value(qy)} {format_value(qz)}" 
+
+    return f"{format_value(qw)} {format_value(qx)} {format_value(qy)} {format_value(qz)}"

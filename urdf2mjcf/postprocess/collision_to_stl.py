@@ -4,7 +4,6 @@
 仅修改文本和 asset 引用，不改变原有逻辑。
 """
 
-import os
 import argparse
 import logging
 import xml.etree.ElementTree as ET
@@ -13,6 +12,7 @@ from pathlib import Path
 from urdf2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
+
 
 def collision_to_stl(mjcf_path: str | Path) -> None:
     """将 MJCF 文件中的碰撞网格转换为 STL 并更新 asset。
@@ -26,7 +26,7 @@ def collision_to_stl(mjcf_path: str | Path) -> None:
     compiler = root.find("compiler")
     mesh_dir_path = mjcf_path.parent / compiler.attrib["meshdir"]
     asset = root.find("asset")
-    
+
     asset_to_add = []
     for geom in root.iter("geom"):
         if geom.attrib.get("type") == "mesh":
@@ -43,10 +43,11 @@ def collision_to_stl(mjcf_path: str | Path) -> None:
                         if Path(mesh_file).suffix.lower() != ".stl":
                             logger.info(f"将碰撞网格 {mesh_name} 转换为 STL 格式。")
                             # 尝试转换为 STL（如果已存在则跳过转换）
-                            stl_file = mesh_file.with_suffix('.stl')
+                            stl_file = mesh_file.with_suffix(".stl")
                             if not stl_file.exists():
                                 try:
                                     import pymeshlab
+
                                     ms = pymeshlab.MeshSet()
                                     ms.load_new_mesh(str(mesh_file))
                                     ms.save_current_mesh(str(stl_file))
@@ -54,24 +55,26 @@ def collision_to_stl(mjcf_path: str | Path) -> None:
                                 except Exception as e:
                                     logger.error(f"将 {mesh_file} 转换为 STL 时出错: {e}")
                             # 更新 geom 的 mesh 属性为新的 stl 名称
-                            geom.attrib["mesh"] = Path(mesh_name).with_suffix('.stl').name
+                            geom.attrib["mesh"] = Path(mesh_name).with_suffix(".stl").name
                             logger.info(f"已更新 geom {geom.attrib.get('name')} 使用网格 {stl_file.name}")
                             # 将新的 asset 条目记录到待添加列表（稍后追加到 asset）
                             asset_to_add.append((geom.attrib["mesh"], str(stl_file.relative_to(mesh_dir_path))))
 
                             logger.info(f"已记录 asset 更新: {mesh.attrib.get('name')} -> {mesh.attrib.get('file')}")
                         break
-    
+
     for a in asset_to_add:
         asset.append(ET.Element("mesh", name=a[0], file=a[1]))
 
     save_xml(mjcf_path, tree)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Updates the mesh of the MJCF file.")
     parser.add_argument("mjcf_path", type=Path, help="Path to the MJCF file.")
     args = parser.parse_args()
     collision_to_stl(args.mjcf_path)
+
 
 if __name__ == "__main__":
     main()
