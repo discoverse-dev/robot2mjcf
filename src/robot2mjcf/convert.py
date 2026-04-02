@@ -22,6 +22,7 @@ from robot2mjcf.conversion_helpers import (
     load_conversion_metadata,
     resolve_output_path,
 )
+from robot2mjcf.conversion_mjcf_assembly import add_actuators, add_mimic_equality_constraints
 from robot2mjcf.conversion_postprocess import PostprocessOptions, apply_postprocess_pipeline
 from robot2mjcf.geometry import ParsedJointParams, compute_min_z, format_value
 from robot2mjcf.mjcf_builders import (
@@ -174,74 +175,8 @@ def convert_urdf_to_mjcf(
     # Add assets
     add_assets(mjcf_root, materials, obj_materials)
 
-    # Replace the actuator block with one that uses positional control.
-    actuator_elem = ET.SubElement(mjcf_root, "actuator")
-    for actuator_joint in actuator_joints:
-        # The class name is the actuator type
-        attrib: dict[str, str] = {"joint": actuator_joint.name}
-        actuator_type_value: str = "motor"
-        if actuator_joint.name in actuator_metadata:
-            if (actuator_type := actuator_metadata[actuator_joint.name].actuator_type) is not None:
-                actuator_type_value = actuator_type
-                logger.info("Joint %s assigned to class: %s", actuator_joint.name, actuator_type_value)
-
-            if actuator_metadata[actuator_joint.name].joint_class is not None:
-                joint_class_value = actuator_metadata[actuator_joint.name].joint_class
-                attrib["class"] = str(joint_class_value)
-                logger.info("Joint %s assigned to class: %s", actuator_joint.name, joint_class_value)
-
-            if actuator_metadata[actuator_joint.name].kp is not None:
-                attrib["kp"] = str(actuator_metadata[actuator_joint.name].kp)
-            if actuator_metadata[actuator_joint.name].kv is not None:
-                attrib["kv"] = str(actuator_metadata[actuator_joint.name].kv)
-            if (ctrlrange := actuator_metadata[actuator_joint.name].ctrlrange) is not None:
-                attrib["ctrlrange"] = f"{ctrlrange[0]} {ctrlrange[1]}"
-            if (forcerange := actuator_metadata[actuator_joint.name].forcerange) is not None:
-                attrib["forcerange"] = f"{forcerange[0]} {forcerange[1]}"
-            if actuator_metadata[actuator_joint.name].gear is not None:
-                attrib["gear"] = str(actuator_metadata[actuator_joint.name].gear)
-
-            logger.info(f"Creating actuator {actuator_joint.name} with class: {actuator_type_value}")
-            ET.SubElement(actuator_elem, actuator_type_value, attrib={"name": f"{actuator_joint.name}", **attrib})
-
-        else:
-            logger.info(f"Actuator {actuator_joint.name} not found in actuator_metadata")
-
-    # 对actuator_elem进行排序，按照在actuator_metadata出现的顺序排序
-    actuator_children = []
-    actuator_lst = list(actuator_elem)
-    for actuator in actuator_lst:
-        if actuator.attrib["joint"] in actuator_metadata.keys():
-            actuator_children.append(actuator)
-        else:
-            logger.warning(f"Warning: Actuator {actuator.attrib['joint']} not found in actuator_metadata")
-
-    actuator_children.sort(key=lambda x: list(actuator_metadata.keys()).index(x.attrib["joint"]))
-
-    # 清空actuator_elem并重新添加排序后的子元素
-    for child in actuator_children:
-        actuator_elem.remove(child)
-    for child in actuator_children:
-        actuator_elem.append(child)
-
-    # Add equality constraints for mimic joints
-    if mimic_constraints:
-        equality_elem = ET.SubElement(mjcf_root, "equality")
-        for mimicked_joint, mimicking_joint, multiplier, offset in mimic_constraints:
-            joint_attrib: dict[str, str] = {"joint1": mimicked_joint, "joint2": mimicking_joint}
-
-            # Generate polycoef attribute for MuJoCo equality constraint
-            # MuJoCo polycoef format: "offset multiplier 0 0 0" for linear relationship
-            # This creates the constraint: joint2 = offset + multiplier * joint1
-            polycoef = f"{offset} {multiplier} 0 0 0"
-            joint_attrib["polycoef"] = polycoef
-
-            # Use collision class defaults for solver parameters if available
-            joint_attrib["solimp"] = "0.95 0.99 0.001"
-            joint_attrib["solref"] = "0.005 1"
-
-            ET.SubElement(equality_elem, "joint", attrib=joint_attrib)
-            logger.info(f"Added equality constraint: {mimicking_joint} = {offset} + {multiplier} * {mimicked_joint}")
+    add_actuators(mjcf_root, actuator_joints, actuator_metadata)
+    add_mimic_equality_constraints(mjcf_root, mimic_constraints)
 
     # add_contact(mjcf_root, robot)
 
