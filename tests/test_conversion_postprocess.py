@@ -1,8 +1,8 @@
 """Tests for conversion post-processing helpers."""
 
-from robot2mjcf.postprocess import PostprocessOptions, apply_postprocess_pipeline, maybe_capture_robot_images
-from robot2mjcf.core.model import ConversionMetadata
 from robot2mjcf.cli.model_path import find_description_packages, scan_and_add
+from robot2mjcf.core.model import ConversionMetadata
+from robot2mjcf.postprocess import PostprocessOptions, apply_postprocess_pipeline, maybe_capture_robot_images
 
 
 def test_maybe_capture_robot_images_is_disabled_by_default(tmp_path, monkeypatch) -> None:

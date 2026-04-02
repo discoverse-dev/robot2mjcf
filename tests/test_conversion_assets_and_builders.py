@@ -12,7 +12,6 @@ from robot2mjcf.conversion.assets import (
     resolve_mesh_source_path,
     resolve_workspace_search_paths,
 )
-from robot2mjcf.core.materials import Material
 from robot2mjcf.conversion.mjcf_assembly import (
     add_assets,
     add_compiler,
@@ -20,6 +19,7 @@ from robot2mjcf.conversion.mjcf_assembly import (
     add_default,
     add_weld_constraints,
 )
+from robot2mjcf.core.materials import Material
 from robot2mjcf.core.model import (
     CollisionParams,
     ConversionMetadata,
@@ -289,9 +289,7 @@ def test_add_contact_adds_excludes_for_adjacent_collision_links() -> None:
 def test_add_weld_constraints_creates_equality_block() -> None:
     root = ET.fromstring("<mujoco />")
     metadata = ConversionMetadata(
-        weld_constraints=[
-            WeldConstraint(body1="arm", body2="world", solimp=[0.95, 0.99, 0.005], solref=[0.01, 1.0])
-        ]
+        weld_constraints=[WeldConstraint(body1="arm", body2="world", solimp=[0.95, 0.99, 0.005], solref=[0.01, 1.0])]
     )
 
     add_weld_constraints(root, metadata)
@@ -314,9 +312,7 @@ def test_add_assets_prefers_mtl_materials_and_adds_default_material() -> None:
             "mtl_material": "0.9 0.9 0.9 1",
             "default_material": "0 0 0 1",
         },
-        {
-            "mtl_material": Material(name="mtl_material", Kd="0.3 0.4 0.5", map_Kd="textures/diffuse.png")
-        },
+        {"mtl_material": Material(name="mtl_material", Kd="0.3 0.4 0.5", map_Kd="textures/diffuse.png")},
     )
 
     texture = root.find("./asset/texture")

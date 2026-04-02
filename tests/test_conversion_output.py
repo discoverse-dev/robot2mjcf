@@ -6,8 +6,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from robot2mjcf.conversion.output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
-from robot2mjcf.postprocess import PostprocessOptions
 from robot2mjcf.core.model import ConversionMetadata
+from robot2mjcf.postprocess import PostprocessOptions
 
 
 def test_adjust_robot_body_height_updates_body_pos(monkeypatch) -> None:

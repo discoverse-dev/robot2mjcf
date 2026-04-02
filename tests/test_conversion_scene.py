@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from robot2mjcf.conversion.pipeline import ConversionContext
-from robot2mjcf.conversion.pipeline import assemble_robot_scene
+from robot2mjcf.conversion.pipeline import ConversionContext, assemble_robot_scene
 from robot2mjcf.core.geometry import ParsedJointParams
 from robot2mjcf.core.model import ActuatorMetadata
 

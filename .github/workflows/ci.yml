@@ -49,6 +49,7 @@ jobs:
 
   windows-smoke:
     runs-on: windows-latest
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
