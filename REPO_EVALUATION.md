@@ -19,8 +19,8 @@
 
 ## 已验证的事实
 
-- `uv run pytest` 通过，当前为 `88` 个测试全部通过。
-- 总覆盖率为 `74.30%`，并设置了 `--cov-fail-under=50` 门槛。
+- `uv run pytest` 通过，当前为 `89` 个测试全部通过。
+- 总覆盖率为 `74.38%`，并设置了 `--cov-fail-under=50` 门槛。
 - `uv run ruff check src/robot2mjcf tests` 通过。
 - `uv run mypy src/robot2mjcf tests` 通过，且**不再**依赖对 `robot2mjcf.*` 的全局 `ignore_errors = true`。
 - `uv build` 成功，能生成 sdist 和 wheel。
@@ -55,6 +55,7 @@
 - 将 CLI 侧 metadata / appendix 输入装配抽到 [`conversion_cli.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_cli.py)。
 - 将底座高度调整与初始 MJCF 落盘 / 后处理调用抽到 [`conversion_output.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_output.py)。
 - 将初始 MJCF 根结构、root link 解析、actuator metadata 兜底整合进 [`conversion_core.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_core.py)。
+- 将 robot body 构建、资源复制、asset / actuator / mimic 串接整合进 [`conversion_scene.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_scene.py)。
 - 将 `convert.py` 进一步拆出：
   - [`conversion_helpers.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_helpers.py)
   - [`conversion_postprocess.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_postprocess.py)
@@ -95,6 +96,7 @@
 - actuator / mimic equality 装配已不再留在 `convert.py` 内联实现中。
 - CLI 输入装配与输出收尾也已开始从 `convert.py` 剥离。
 - 初始 conversion context 已可独立构建，不再散落在 `convert.py` 内联。
+- robot scene 组装阶段已经可独立执行，不再混在主入口函数内部。
 - 已显式区分“轻量转换核心”和“重型 mesh 后处理”。
 
 ### 仍然存在的问题
@@ -173,7 +175,7 @@ CI 已从“表面存在但并不可靠”提升为“基本可信”：
 
 ### 当前结论
 
-覆盖率已经从 `45%` 提升到 `74.30%`，这是实质性提升，不是形式改善。
+覆盖率已经从 `45%` 提升到 `74.38%`，这是实质性提升，不是形式改善。
 
 关键变化：
 
@@ -184,6 +186,7 @@ CI 已从“表面存在但并不可靠”提升为“基本可信”：
 - `conversion_core.py` 已达到 `100%`
 - `conversion_mjcf_assembly.py` 已达到 `100%`
 - `conversion_output.py` 已达到 `100%`
+- `conversion_scene.py` 已达到 `100%`
 - `mjcf_builders.py` 已提升到 `96%`
 - `postprocess/collisions.py` 已提升到 `88%`
 - `postprocess/add_appendix.py` 已提升到 `89%`

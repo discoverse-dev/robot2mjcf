@@ -6,13 +6,6 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 
-from robot2mjcf.conversion_assets import (
-    add_mesh_assets_to_xml,
-    collect_single_obj_materials,
-    copy_mesh_assets,
-    resolve_workspace_search_paths,
-)
-from robot2mjcf.conversion_body_builder import build_robot_body_tree
 from robot2mjcf.conversion_cli import (
     load_actuator_metadata_files,
     load_default_metadata_files,
@@ -24,11 +17,10 @@ from robot2mjcf.conversion_helpers import (
     load_conversion_metadata,
     resolve_output_path,
 )
-from robot2mjcf.conversion_mjcf_assembly import add_actuators, add_mimic_equality_constraints
 from robot2mjcf.conversion_output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
 from robot2mjcf.conversion_postprocess import PostprocessOptions
-from robot2mjcf.geometry import ParsedJointParams
-from robot2mjcf.mjcf_builders import ROBOT_CLASS, add_assets, add_weld_constraints
+from robot2mjcf.conversion_scene import assemble_robot_scene
+from robot2mjcf.mjcf_builders import add_weld_constraints
 from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
 
 logger = logging.getLogger(__name__)
@@ -88,63 +80,23 @@ def convert_urdf_to_mjcf(
         actuator_metadata=actuator_metadata,
         collision_only=collision_only,
     )
-
-    # These dictionaries are used to collect mesh assets and actuator joints.
-    mesh_assets: dict[str, str] = {}
-    actuator_joints: list[ParsedJointParams] = []
-
-    # Prepare paths for mesh processing
-    target_mesh_dir: Path = (mjcf_path.parent / "meshes").resolve()
-    target_mesh_dir.mkdir(parents=True, exist_ok=True)
-
-    workspace_search_paths = resolve_workspace_search_paths(urdf_path)
-
-    robot_body, actuator_joints = build_robot_body_tree(
-        context.root_link_name,
-        link_map=context.link_map,
-        parent_map=context.parent_map,
-        actuator_metadata=context.actuator_metadata,
+    scene = assemble_robot_scene(
+        context,
+        urdf_path=urdf_path,
+        urdf_dir=urdf_dir,
+        mjcf_path=mjcf_path,
         collision_only=collision_only,
         materials=materials,
-        mesh_assets=mesh_assets,
-        workspace_search_paths=workspace_search_paths,
-        urdf_dir=urdf_dir,
     )
-
-    robot_body.attrib["childclass"] = ROBOT_CLASS
-    context.worldbody.append(robot_body)
-
-    obj_materials = collect_single_obj_materials(
-        mesh_assets,
-        urdf_dir=urdf_dir,
-        workspace_search_paths=workspace_search_paths,
-    )
-
-    # Add assets
-    add_assets(context.mjcf_root, materials, obj_materials)
-
-    add_actuators(context.mjcf_root, actuator_joints, context.actuator_metadata)
-    add_mimic_equality_constraints(context.mjcf_root, context.mimic_constraints)
 
     # add_contact(mjcf_root, robot)
 
     # Add weld constraints if specified in metadata
     add_weld_constraints(context.mjcf_root, metadata)
 
-    mesh_copy_result = copy_mesh_assets(
-        context.mjcf_root,
-        mesh_assets,
-        urdf_dir=urdf_dir,
-        target_mesh_dir=target_mesh_dir,
-        workspace_search_paths=workspace_search_paths,
-    )
-    mesh_assets = mesh_copy_result.mesh_assets
-    mesh_file_paths = mesh_copy_result.mesh_file_paths
-    add_mesh_assets_to_xml(context.mjcf_root, mesh_assets, urdf_dir=urdf_dir)
-
     adjust_robot_body_height(
-        robot_body,
-        mesh_file_paths=mesh_file_paths,
+        scene.robot_body,
+        mesh_file_paths=scene.mesh_file_paths,
         height_offset=metadata.height_offset,
     )
     save_initial_mjcf_and_apply_postprocess(
