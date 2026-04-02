@@ -32,6 +32,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
+
       - name: Sync dependencies
         run: uv sync --all-groups
 
@@ -69,7 +73,7 @@ jobs:
           uv run robot2mjcf-mjcf2obj --help
 
       - name: Import smoke test
-        run: uv run pytest tests/test_import.py -q
+        run: uv run pytest tests/test_import.py -q --no-cov
 
   package-smoke:
     runs-on: ubuntu-latest

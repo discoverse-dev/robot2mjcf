@@ -44,7 +44,7 @@ cli-smoke: ## Verify the CLI entry points start
 	$(UV) run robot2mjcf-mjcf2obj --help
 
 import-smoke: ## Run the import smoke test
-	$(UV) run pytest tests/test_import.py -q
+	$(UV) run pytest tests/test_import.py -q --no-cov
 
 build: ## Build the package
 	$(UV) build

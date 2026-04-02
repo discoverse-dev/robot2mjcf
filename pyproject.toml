@@ -63,6 +63,9 @@ path = "src/robot2mjcf/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/robot2mjcf"]
 
+[tool.hatch.build.targets.sdist]
+exclude = [".uv-cache", ".venv", "dist"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py310"
