@@ -7,8 +7,8 @@ from pathlib import Path
 
 from scipy.spatial.transform import Rotation as R
 
-from robot2mjcf.model import ConversionMetadata, SiteMetadata
-from robot2mjcf.utils import save_xml
+from robot2mjcf.core.model import ConversionMetadata, SiteMetadata
+from robot2mjcf.core.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ def add_sensors(
             # Updates the site position and rotation.
             if imu.rpy is not None:
                 rotation = R.from_euler("xyz", imu.rpy, degrees=True)
-                qx, qy, qz, qw = rotation.as_quat(scalar_first=False)
+                qx, qy, qz, qw = rotation.as_quat()  # scipy returns [x, y, z, w]
                 site_elem.attrib["quat"] = f"{qw} {qx} {qy} {qz}"
 
             if imu.pos is not None:

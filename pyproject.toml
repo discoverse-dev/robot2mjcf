@@ -45,9 +45,9 @@ Repository = "https://github.com/discoverse-dev/robot2mjcf"
 Issues = "https://github.com/discoverse-dev/robot2mjcf/issues"
 
 [project.scripts]
-robot2mjcf = "robot2mjcf.convert:main"
-robot2mjcf-mjcf2obj = "robot2mjcf.mjcf2obj:main"
-robot2mjcf-modelpath = "robot2mjcf.model_path_manager:main"
+robot2mjcf = "robot2mjcf.cli.convert:main"
+robot2mjcf-mjcf2obj = "robot2mjcf.cli.mjcf2obj:main"
+robot2mjcf-modelpath = "robot2mjcf.cli.model_path:main"
 
 [dependency-groups]
 dev = [

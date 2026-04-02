@@ -1,12 +1,21 @@
-"""Pure helpers for the URDF-to-MJCF conversion pipeline."""
+"""Helpers for loading conversion inputs, resolving output paths, and URDF parsing.
+
+Merged from: conversion_input.py + conversion_helpers.py
+"""
 
 import logging
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 
-from robot2mjcf.model import ConversionMetadata
+from robot2mjcf.core.model import ConversionMetadata
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers (from conversion_helpers.py)
+# ---------------------------------------------------------------------------
 
 
 def resolve_output_path(urdf_path: str | Path, mjcf_path: str | Path | None) -> tuple[Path, str | None]:
@@ -35,7 +44,10 @@ def load_conversion_metadata(metadata_file: str | Path | None) -> ConversionMeta
         return ConversionMetadata()
 
     try:
-        return ConversionMetadata.model_validate_json(Path(metadata_file).read_text())
+        text = Path(metadata_file).read_text()
+        if hasattr(ConversionMetadata, "model_validate_json"):
+            return ConversionMetadata.model_validate_json(text)
+        return ConversionMetadata.parse_raw(text)
     except Exception as exc:
         logger.warning("Failed to load metadata from %s: %s", metadata_file, exc)
         return ConversionMetadata()
@@ -124,3 +136,55 @@ def collect_mimic_constraints(robot: ET.Element) -> list[tuple[str, str, float, 
             mimic_constraints.append((mimicked_joint, joint_name, multiplier, offset))
 
     return mimic_constraints
+
+
+# ---------------------------------------------------------------------------
+# ConversionInputs (from conversion_input.py)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ConversionInputs:
+    """Loaded inputs for the conversion pipeline."""
+
+    urdf_path: Path
+    urdf_dir: Path
+    mjcf_path: Path
+    output_warning: str | None
+    robot: ET.Element
+    metadata: ConversionMetadata
+    materials: dict[str, str]
+
+
+def load_conversion_inputs(
+    urdf_path: str | Path,
+    mjcf_path: str | Path | None,
+    metadata_file: str | Path | None,
+    *,
+    collision_only: bool,
+) -> ConversionInputs:
+    """Load the URDF, metadata, material map, and resolved output path."""
+    resolved_urdf_path = Path(urdf_path)
+    if not resolved_urdf_path.exists():
+        raise FileNotFoundError(f"URDF file not found: {resolved_urdf_path}")
+
+    urdf_dir = resolved_urdf_path.parent.resolve()
+    resolved_mjcf_path, output_warning = resolve_output_path(resolved_urdf_path, mjcf_path)
+    resolved_mjcf_path.parent.mkdir(parents=True, exist_ok=True)
+
+    robot = ET.parse(resolved_urdf_path).getroot()
+    if robot is None:
+        raise ValueError("URDF file has no root element")
+
+    metadata = load_conversion_metadata(metadata_file)
+    materials = collect_urdf_materials(robot, collision_only)
+
+    return ConversionInputs(
+        urdf_path=resolved_urdf_path,
+        urdf_dir=urdf_dir,
+        mjcf_path=resolved_mjcf_path,
+        output_warning=output_warning,
+        robot=robot,
+        metadata=metadata,
+        materials=materials,
+    )

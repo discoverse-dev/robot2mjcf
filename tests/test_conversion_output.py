@@ -5,15 +5,15 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from robot2mjcf.conversion_output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
-from robot2mjcf.conversion_postprocess import PostprocessOptions
-from robot2mjcf.model import ConversionMetadata
+from robot2mjcf.conversion.output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
+from robot2mjcf.postprocess import PostprocessOptions
+from robot2mjcf.core.model import ConversionMetadata
 
 
 def test_adjust_robot_body_height_updates_body_pos(monkeypatch) -> None:
     body = ET.fromstring("<body name='base' pos='1 2 3' />")
 
-    monkeypatch.setattr("robot2mjcf.conversion_output.compute_min_z", lambda *args, **kwargs: -0.5)
+    monkeypatch.setattr("robot2mjcf.conversion.output.compute_min_z", lambda *args, **kwargs: -0.5)
 
     offset = adjust_robot_body_height(
         body,
@@ -38,8 +38,8 @@ def test_save_initial_mjcf_and_apply_postprocess_writes_and_dispatches(tmp_path,
         calls.append(("postprocess", Path(path)))
         calls.append(("options", options))
 
-    monkeypatch.setattr("robot2mjcf.conversion_output.save_xml", fake_save_xml)
-    monkeypatch.setattr("robot2mjcf.conversion_output.apply_postprocess_pipeline", fake_apply_postprocess_pipeline)
+    monkeypatch.setattr("robot2mjcf.conversion.output.save_xml", fake_save_xml)
+    monkeypatch.setattr("robot2mjcf.conversion.output.apply_postprocess_pipeline", fake_apply_postprocess_pipeline)
 
     options = PostprocessOptions(
         metadata=ConversionMetadata(),

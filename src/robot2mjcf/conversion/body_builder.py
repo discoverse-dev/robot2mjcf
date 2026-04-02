@@ -9,10 +9,10 @@ from pathlib import Path
 
 import numpy as np
 
-from robot2mjcf.geometry import GeomElement, ParsedJointParams, rpy_to_quat
-from robot2mjcf.materials import get_obj_material_info
-from robot2mjcf.model import ActuatorMetadata
-from robot2mjcf.package_resolver import resolve_package_path
+from robot2mjcf.core.geometry import GeomElement, ParsedJointParams, rpy_to_quat
+from robot2mjcf.core.materials import get_obj_material_info
+from robot2mjcf.core.model import ActuatorMetadata
+from robot2mjcf.core.package_resolver import resolve_package_path
 
 logger = logging.getLogger(__name__)
 

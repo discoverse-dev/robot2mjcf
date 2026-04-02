@@ -10,9 +10,9 @@ from typing import Any
 
 import trimesh
 
-from robot2mjcf.materials import Material, parse_mtl_name
+from robot2mjcf.core.materials import Material, parse_mtl_name
 from robot2mjcf.postprocess.mesh_converter import dae2obj
-from robot2mjcf.utils import save_xml
+from robot2mjcf.core.utils import save_xml
 
 logger = logging.getLogger(__name__)
 

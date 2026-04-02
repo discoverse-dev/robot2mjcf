@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from robot2mjcf.conversion_cli import (
+from robot2mjcf.cli.convert import (
     load_actuator_metadata_files,
     load_default_metadata_files,
     normalize_appendix_files,

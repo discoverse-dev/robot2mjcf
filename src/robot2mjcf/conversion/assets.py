@@ -9,8 +9,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from robot2mjcf.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
-from robot2mjcf.package_resolver import find_workspace_from_path, resolve_package_path
+from robot2mjcf.core.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
+from robot2mjcf.core.package_resolver import find_workspace_from_path, resolve_package_path
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def resolve_workspace_search_paths(urdf_path: Path) -> list[Path]:
         workspace_search_paths.append(workspace_from_urdf)
         logger.debug("Found ROS workspace from URDF location: %s", workspace_from_urdf)
 
-    from robot2mjcf.package_resolver import _default_resolver
+    from robot2mjcf.core.package_resolver import _default_resolver
 
     package_root = _default_resolver._find_package_root_from_urdf_path(urdf_path)
     if package_root and package_root not in workspace_search_paths:

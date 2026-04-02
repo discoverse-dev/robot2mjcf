@@ -1,29 +1,92 @@
-"""Converts URDF files to MJCF files."""
+"""Converts URDF files to MJCF files.
+
+Merged from: convert.py + conversion_cli.py
+"""
+
+from __future__ import annotations
 
 import argparse
+import json
 import logging
-import xml.etree.ElementTree as ET
-from collections.abc import Mapping
+import traceback
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import TypeVar
 
-from robot2mjcf.conversion_cli import (
-    load_actuator_metadata_files,
-    load_default_metadata_files,
-    normalize_appendix_files,
+from robot2mjcf.conversion.input import load_conversion_inputs
+from robot2mjcf.conversion.mjcf_assembly import add_weld_constraints
+from robot2mjcf.conversion.output import (
+    adjust_robot_body_height,
+    build_postprocess_options,
+    save_initial_mjcf_and_apply_postprocess,
 )
-from robot2mjcf.conversion_core import build_conversion_context
-from robot2mjcf.conversion_helpers import (
-    collect_urdf_materials,
-    load_conversion_metadata,
-    resolve_output_path,
-)
-from robot2mjcf.conversion_output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
-from robot2mjcf.conversion_postprocess import PostprocessOptions
-from robot2mjcf.conversion_scene import assemble_robot_scene
-from robot2mjcf.mjcf_builders import add_weld_constraints
-from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
+from robot2mjcf.conversion.pipeline import assemble_robot_scene, build_conversion_context
+from robot2mjcf.core.model import ActuatorMetadata, DefaultJointMetadata
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers (from conversion_cli.py)
+# ---------------------------------------------------------------------------
+
+
+def _load_metadata_files(
+    metadata_files: Sequence[str] | None,
+    *,
+    label: str,
+    parser: Callable[[dict], T],
+) -> dict[str, T] | None:
+    """Load keyed metadata from one or more JSON files."""
+    loaded: dict[str, T] = {}
+    if not metadata_files:
+        return None
+
+    for metadata_file in metadata_files:
+        try:
+            with open(metadata_file, "r") as f:
+                file_metadata = json.load(f)
+            for key, value in file_metadata.items():
+                loaded[key] = parser(value)
+            logger.info("Loaded %s metadata from %s", label, metadata_file)
+        except Exception as exc:
+            logger.warning("Failed to load %s metadata from %s: %s", label, metadata_file, exc)
+            traceback.print_exc()
+            raise SystemExit(1) from exc
+
+    return loaded or None
+
+
+def load_default_metadata_files(metadata_files: Sequence[str] | None) -> dict[str, DefaultJointMetadata] | None:
+    """Load default metadata files from CLI arguments."""
+    return _load_metadata_files(
+        metadata_files,
+        label="default",
+        parser=DefaultJointMetadata.from_dict,
+    )
+
+
+def load_actuator_metadata_files(metadata_files: Sequence[str] | None) -> dict[str, ActuatorMetadata] | None:
+    """Load actuator metadata files from CLI arguments."""
+    return _load_metadata_files(
+        metadata_files,
+        label="actuator",
+        parser=ActuatorMetadata.from_dict,
+    )
+
+
+def normalize_appendix_files(appendix_files: Sequence[str] | None) -> list[Path] | None:
+    """Convert appendix file CLI arguments to Path objects."""
+    if not appendix_files:
+        return None
+    return [Path(appendix_file) for appendix_file in appendix_files]
+
+
+# ---------------------------------------------------------------------------
+# Public API and CLI entry point (from convert.py)
+# ---------------------------------------------------------------------------
 
 
 def convert_urdf_to_mjcf(
@@ -55,55 +118,45 @@ def convert_urdf_to_mjcf(
         capture_images: If true, capture rendered preview images after conversion.
         run_mesh_postprocess: If false, skip the heavy mesh post-processing pipeline.
     """
-    urdf_path = Path(urdf_path)
-    if not urdf_path.exists():
-        raise FileNotFoundError(f"URDF file not found: {urdf_path}")
-
-    urdf_dir = urdf_path.parent.resolve()
-    mjcf_path, output_warning = resolve_output_path(urdf_path, mjcf_path)
-    if output_warning is not None:
-        print(f"\033[33m{output_warning}\033[0m")
-
-    mjcf_path.parent.mkdir(parents=True, exist_ok=True)
-
-    urdf_tree = ET.parse(urdf_path)
-    robot = urdf_tree.getroot()
-    if robot is None:
-        raise ValueError("URDF file has no root element")
-
-    metadata = load_conversion_metadata(metadata_file)
-    materials = collect_urdf_materials(robot, collision_only)
+    inputs = load_conversion_inputs(
+        urdf_path,
+        mjcf_path,
+        metadata_file,
+        collision_only=collision_only,
+    )
+    if inputs.output_warning is not None:
+        print(f"\033[33m{inputs.output_warning}\033[0m")
     context = build_conversion_context(
-        robot,
-        metadata=metadata,
+        inputs.robot,
+        metadata=inputs.metadata,
         default_metadata=default_metadata,
         actuator_metadata=actuator_metadata,
         collision_only=collision_only,
     )
     scene = assemble_robot_scene(
         context,
-        urdf_path=urdf_path,
-        urdf_dir=urdf_dir,
-        mjcf_path=mjcf_path,
+        urdf_path=inputs.urdf_path,
+        urdf_dir=inputs.urdf_dir,
+        mjcf_path=inputs.mjcf_path,
         collision_only=collision_only,
-        materials=materials,
+        materials=inputs.materials,
     )
 
     # add_contact(mjcf_root, robot)
 
     # Add weld constraints if specified in metadata
-    add_weld_constraints(context.mjcf_root, metadata)
+    add_weld_constraints(context.mjcf_root, inputs.metadata)
 
     adjust_robot_body_height(
         scene.robot_body,
         mesh_file_paths=scene.mesh_file_paths,
-        height_offset=metadata.height_offset,
+        height_offset=inputs.metadata.height_offset,
     )
     save_initial_mjcf_and_apply_postprocess(
         context.mjcf_root,
-        mjcf_path=mjcf_path,
-        options=PostprocessOptions(
-            metadata=metadata,
+        mjcf_path=inputs.mjcf_path,
+        options=build_postprocess_options(
+            metadata=inputs.metadata,
             collision_only=collision_only,
             collision_type=collision_type,
             max_vertices=max_vertices,

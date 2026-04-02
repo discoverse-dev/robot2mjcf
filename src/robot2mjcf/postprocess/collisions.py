@@ -16,8 +16,8 @@ import numpy as np
 import trimesh
 from scipy.spatial.transform import Rotation as R
 
-from robot2mjcf.model import CollisionGeometry, CollisionType
-from robot2mjcf.utils import save_xml
+from robot2mjcf.core.model import CollisionGeometry, CollisionType
+from robot2mjcf.core.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -126,8 +126,8 @@ def update_collisions(
             quat_values = [float(v) for v in mesh_geom.attrib["quat"].split()]
             geom_quat[:] = quat_values  # Update values in-place
 
-        # Get rotation matrix from quaternion
-        geom_r = R.from_quat(geom_quat, scalar_first=True)
+        # Get rotation matrix from quaternion (MJCF uses w,x,y,z order; scipy expects x,y,z,w)
+        geom_r = R.from_quat([geom_quat[1], geom_quat[2], geom_quat[3], geom_quat[0]])
 
         # Transform vertices to mesh-local coordinates
         local_vertices = vertices.copy()

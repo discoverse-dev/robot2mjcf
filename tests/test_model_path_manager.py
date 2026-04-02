@@ -1,6 +1,6 @@
 """Tests for model path manager helpers."""
 
-from robot2mjcf.model_path_manager import get_current_model_paths, is_description_package, set_model_paths
+from robot2mjcf.cli.model_path import get_current_model_paths, is_description_package, set_model_paths
 
 
 def test_is_description_package_requires_expected_structure(tmp_path) -> None:
@@ -19,7 +19,7 @@ def test_set_model_paths_round_trip_posix(tmp_path, monkeypatch) -> None:
     path_a.mkdir()
     path_b.mkdir()
 
-    monkeypatch.setattr("robot2mjcf.model_path_manager.platform.system", lambda: "Linux")
+    monkeypatch.setattr("robot2mjcf.cli.model_path.platform.system", lambda: "Linux")
 
     export_cmd = set_model_paths([path_a, path_b])
 
@@ -33,7 +33,7 @@ def test_set_model_paths_round_trip_windows(tmp_path, monkeypatch) -> None:
     path_a.mkdir()
     path_b.mkdir()
 
-    monkeypatch.setattr("robot2mjcf.model_path_manager.platform.system", lambda: "Windows")
+    monkeypatch.setattr("robot2mjcf.cli.model_path.platform.system", lambda: "Windows")
 
     export_cmd = set_model_paths([path_a, path_b])
 

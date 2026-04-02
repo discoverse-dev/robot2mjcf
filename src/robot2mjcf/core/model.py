@@ -44,8 +44,8 @@ class DefaultJointMetadata(BaseModel):
     @classmethod
     def from_dict(cls, data: dict) -> "DefaultJointMetadata":
         """Create DefaultJointMetadata from a plain dictionary."""
-        joint = dJoint.model_validate(data["joint"])
-        actuator = dActuator.model_validate(data["actuator"])
+        joint = dJoint(**data["joint"])
+        actuator = dActuator(**data["actuator"])
         return cls(joint=joint, actuator=actuator)
 
 

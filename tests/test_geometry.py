@@ -2,7 +2,7 @@
 
 import math
 
-from robot2mjcf.geometry import (
+from robot2mjcf.core.geometry import (
     build_transform,
     format_value,
     parse_vector,

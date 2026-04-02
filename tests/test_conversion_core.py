@@ -6,12 +6,12 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from robot2mjcf.conversion_core import (
+from robot2mjcf.conversion.pipeline import (
     build_conversion_context,
     create_empty_actuator_metadata,
     resolve_root_link_name,
 )
-from robot2mjcf.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, dActuator, dJoint
+from robot2mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, dActuator, dJoint
 
 
 def test_create_empty_actuator_metadata_creates_motor_entries() -> None:

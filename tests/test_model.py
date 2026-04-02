@@ -1,6 +1,6 @@
 """Tests for Pydantic models."""
 
-from robot2mjcf.model import (
+from robot2mjcf.core.model import (
     ActuatorMetadata,
     CollisionGeometry,
     CollisionParams,
@@ -43,8 +43,8 @@ def test_conversion_metadata_defaults() -> None:
 
 def test_conversion_metadata_json_roundtrip() -> None:
     meta = ConversionMetadata(height_offset=0.5, angle="degree")
-    raw = meta.model_dump_json()
-    loaded = ConversionMetadata.model_validate_json(raw)
+    raw = meta.model_dump_json() if hasattr(meta, "model_dump_json") else meta.json()
+    loaded = ConversionMetadata.model_validate_json(raw) if hasattr(ConversionMetadata, "model_validate_json") else ConversionMetadata.parse_raw(raw)
     assert loaded.height_offset == 0.5
     assert loaded.angle == "degree"
 

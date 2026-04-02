@@ -2,7 +2,7 @@
 
 import xml.etree.ElementTree as ET
 
-from robot2mjcf.conversion_helpers import (
+from robot2mjcf.conversion.input import (
     build_joint_maps,
     collect_mimic_constraints,
     collect_urdf_materials,

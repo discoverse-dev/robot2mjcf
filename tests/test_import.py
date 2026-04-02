@@ -35,7 +35,7 @@ def test_format_urdf_file_in_place(tmp_path) -> None:
 
 def test_cli_help() -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "robot2mjcf.convert", "--help"],
+        [sys.executable, "-m", "robot2mjcf.cli.convert", "--help"],
         capture_output=True,
         text=True,
     )

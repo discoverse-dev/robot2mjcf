@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from robot2mjcf.package_resolver import PackageResolver, find_workspace_from_path
+from robot2mjcf.core.package_resolver import PackageResolver, find_workspace_from_path
 
 
 def create_ros_package(path: Path) -> Path:
@@ -52,7 +52,7 @@ def test_get_model_paths_from_env_uses_windows_separator(tmp_path, monkeypatch) 
     path_b.mkdir()
 
     monkeypatch.setenv("URDF2MJCF_MODEL_PATH", f"{path_a};{path_b}")
-    monkeypatch.setattr("robot2mjcf.package_resolver.platform.system", lambda: "Windows")
+    monkeypatch.setattr("robot2mjcf.core.package_resolver.platform.system", lambda: "Windows")
 
     resolver = PackageResolver()
 

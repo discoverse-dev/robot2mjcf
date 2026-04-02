@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from robot2mjcf.conversion_mjcf_assembly import add_actuators, add_mimic_equality_constraints
-from robot2mjcf.geometry import ParsedJointParams
-from robot2mjcf.model import ActuatorMetadata
+from robot2mjcf.conversion.mjcf_assembly import add_actuators, add_mimic_equality_constraints
+from robot2mjcf.core.geometry import ParsedJointParams
+from robot2mjcf.core.model import ActuatorMetadata
 
 
 def test_add_actuators_uses_metadata_and_preserves_metadata_order() -> None:

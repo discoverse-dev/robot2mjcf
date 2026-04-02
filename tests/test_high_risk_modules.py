@@ -7,8 +7,8 @@ from pathlib import Path
 
 import trimesh
 
-from robot2mjcf.mjcf2obj import export_mjcf_bodies
-from robot2mjcf.model import (
+from robot2mjcf.cli.mjcf2obj import export_mjcf_bodies
+from robot2mjcf.core.model import (
     CollisionGeometry,
     CollisionType,
     ConversionMetadata,

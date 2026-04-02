@@ -5,22 +5,22 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from robot2mjcf.conversion_assets import (
+from robot2mjcf.conversion.assets import (
     add_mesh_assets_to_xml,
     collect_single_obj_materials,
     copy_mesh_assets,
     resolve_mesh_source_path,
     resolve_workspace_search_paths,
 )
-from robot2mjcf.materials import Material
-from robot2mjcf.mjcf_builders import (
+from robot2mjcf.core.materials import Material
+from robot2mjcf.conversion.mjcf_assembly import (
     add_assets,
     add_compiler,
     add_contact,
     add_default,
     add_weld_constraints,
 )
-from robot2mjcf.model import (
+from robot2mjcf.core.model import (
     CollisionParams,
     ConversionMetadata,
     DefaultJointMetadata,
@@ -40,9 +40,9 @@ def test_resolve_workspace_search_paths_collects_unique_roots(tmp_path, monkeypa
     urdf_path = tmp_path / "pkg" / "robot.urdf"
     workspace = tmp_path / "ws"
 
-    monkeypatch.setattr("robot2mjcf.conversion_assets.find_workspace_from_path", lambda path: workspace)
+    monkeypatch.setattr("robot2mjcf.conversion.assets.find_workspace_from_path", lambda path: workspace)
     monkeypatch.setattr(
-        "robot2mjcf.package_resolver._default_resolver._find_package_root_from_urdf_path",
+        "robot2mjcf.core.package_resolver._default_resolver._find_package_root_from_urdf_path",
         lambda path: workspace,
     )
 
@@ -54,7 +54,7 @@ def test_resolve_mesh_source_path_handles_package_absolute_and_relative(tmp_path
     urdf_dir = tmp_path / "robot"
     absolute_mesh = tmp_path / "shared" / "mesh.stl"
 
-    monkeypatch.setattr("robot2mjcf.conversion_assets.resolve_package_path", lambda name, roots: package_root)
+    monkeypatch.setattr("robot2mjcf.conversion.assets.resolve_package_path", lambda name, roots: package_root)
 
     package_source, package_subpath = resolve_mesh_source_path(
         "package://demo_pkg/meshes/part.obj",

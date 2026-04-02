@@ -1,8 +1,8 @@
 """Tests for conversion post-processing helpers."""
 
-from robot2mjcf.conversion_postprocess import PostprocessOptions, apply_postprocess_pipeline, maybe_capture_robot_images
-from robot2mjcf.model import ConversionMetadata
-from robot2mjcf.model_path_manager import find_description_packages, scan_and_add
+from robot2mjcf.postprocess import PostprocessOptions, apply_postprocess_pipeline, maybe_capture_robot_images
+from robot2mjcf.core.model import ConversionMetadata
+from robot2mjcf.cli.model_path import find_description_packages, scan_and_add
 
 
 def test_maybe_capture_robot_images_is_disabled_by_default(tmp_path, monkeypatch) -> None:
@@ -73,7 +73,7 @@ def test_apply_postprocess_pipeline_can_skip_heavy_mesh_steps(tmp_path, monkeypa
         "fix_base_joint",
         "maybe_capture_robot_images",
     ]:
-        monkeypatch.setattr(f"robot2mjcf.conversion_postprocess.{name}", record(name))
+        monkeypatch.setattr(f"robot2mjcf.postprocess.{name}", record(name))
 
     for name in [
         "convex_decomposition",
@@ -85,7 +85,7 @@ def test_apply_postprocess_pipeline_can_skip_heavy_mesh_steps(tmp_path, monkeypa
         "check_shell_meshes",
         "deduplicate_meshes",
     ]:
-        monkeypatch.setattr(f"robot2mjcf.conversion_postprocess.{name}", record(name))
+        monkeypatch.setattr(f"robot2mjcf.postprocess.{name}", record(name))
 
     apply_postprocess_pipeline(
         mjcf_path,
