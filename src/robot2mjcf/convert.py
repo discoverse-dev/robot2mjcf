@@ -18,9 +18,8 @@ from robot2mjcf.conversion_cli import (
     load_default_metadata_files,
     normalize_appendix_files,
 )
+from robot2mjcf.conversion_core import build_conversion_context
 from robot2mjcf.conversion_helpers import (
-    build_joint_maps,
-    collect_mimic_constraints,
     collect_urdf_materials,
     load_conversion_metadata,
     resolve_output_path,
@@ -29,36 +28,10 @@ from robot2mjcf.conversion_mjcf_assembly import add_actuators, add_mimic_equalit
 from robot2mjcf.conversion_output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
 from robot2mjcf.conversion_postprocess import PostprocessOptions
 from robot2mjcf.geometry import ParsedJointParams
-from robot2mjcf.mjcf_builders import (
-    ROBOT_CLASS,
-    add_assets,
-    add_compiler,
-    add_default,
-    add_visual,
-    add_weld_constraints,
-)
+from robot2mjcf.mjcf_builders import ROBOT_CLASS, add_assets, add_weld_constraints
 from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
 
 logger = logging.getLogger(__name__)
-
-
-def _get_empty_actuator_metadata(
-    robot_elem: ET.Element,
-) -> dict[str, ActuatorMetadata]:
-    """Create placeholder metadata for joints and actuators if none are provided.
-
-    Each joint is simply assigned a "motor" actuator type, which has no other parameters.
-    """
-    actuator_meta: dict[str, ActuatorMetadata] = {}
-    for joint in robot_elem.findall("joint"):
-        name = joint.attrib.get("name")
-        if not name:
-            continue
-        actuator_meta[name] = ActuatorMetadata(
-            actuator_type="motor",
-        )
-
-    return actuator_meta
 
 
 def convert_urdf_to_mjcf(
@@ -107,46 +80,18 @@ def convert_urdf_to_mjcf(
         raise ValueError("URDF file has no root element")
 
     metadata = load_conversion_metadata(metadata_file)
-
-    if actuator_metadata is None:
-        missing = []
-        if actuator_metadata is None:
-            missing.append("joint")
-        logger.warning("Missing %s metadata, falling back to single empty 'motor' class.", " and ".join(missing))
-        actuator_metadata = _get_empty_actuator_metadata(robot)
-    assert actuator_metadata is not None
-
     materials = collect_urdf_materials(robot, collision_only)
-
-    # Create a new MJCF tree root element.
-    mjcf_root: ET.Element = ET.Element("mujoco", attrib={"model": robot.attrib.get("name", "converted_robot")})
-
-    # Add compiler, option, visual, and assets
-    add_compiler(mjcf_root)
-    # add_option(mjcf_root)
-    add_visual(mjcf_root)
-    add_default(mjcf_root, metadata, default_metadata, collision_only)
-
-    # Creates the worldbody element.
-    worldbody = ET.SubElement(mjcf_root, "worldbody")
-
-    link_map, parent_map, child_joints = build_joint_maps(robot)
-
-    all_links = set(link_map.keys())
-    child_links = set(child_joints.keys())
-    root_links: list[str] = list(all_links - child_links)
-    if not root_links:
-        raise ValueError("No root link found in URDF.")
-    root_link_name: str = root_links[0]
+    context = build_conversion_context(
+        robot,
+        metadata=metadata,
+        default_metadata=default_metadata,
+        actuator_metadata=actuator_metadata,
+        collision_only=collision_only,
+    )
 
     # These dictionaries are used to collect mesh assets and actuator joints.
     mesh_assets: dict[str, str] = {}
     actuator_joints: list[ParsedJointParams] = []
-    mimic_constraints = collect_mimic_constraints(robot)
-    for mimicked_joint, joint_name, multiplier, offset in mimic_constraints:
-        logger.info(
-            f"Found mimic constraint: {joint_name} mimics {mimicked_joint} with multiplier={multiplier}, offset={offset}"
-        )
 
     # Prepare paths for mesh processing
     target_mesh_dir: Path = (mjcf_path.parent / "meshes").resolve()
@@ -155,10 +100,10 @@ def convert_urdf_to_mjcf(
     workspace_search_paths = resolve_workspace_search_paths(urdf_path)
 
     robot_body, actuator_joints = build_robot_body_tree(
-        root_link_name,
-        link_map=link_map,
-        parent_map=parent_map,
-        actuator_metadata=actuator_metadata,
+        context.root_link_name,
+        link_map=context.link_map,
+        parent_map=context.parent_map,
+        actuator_metadata=context.actuator_metadata,
         collision_only=collision_only,
         materials=materials,
         mesh_assets=mesh_assets,
@@ -167,7 +112,7 @@ def convert_urdf_to_mjcf(
     )
 
     robot_body.attrib["childclass"] = ROBOT_CLASS
-    worldbody.append(robot_body)
+    context.worldbody.append(robot_body)
 
     obj_materials = collect_single_obj_materials(
         mesh_assets,
@@ -176,18 +121,18 @@ def convert_urdf_to_mjcf(
     )
 
     # Add assets
-    add_assets(mjcf_root, materials, obj_materials)
+    add_assets(context.mjcf_root, materials, obj_materials)
 
-    add_actuators(mjcf_root, actuator_joints, actuator_metadata)
-    add_mimic_equality_constraints(mjcf_root, mimic_constraints)
+    add_actuators(context.mjcf_root, actuator_joints, context.actuator_metadata)
+    add_mimic_equality_constraints(context.mjcf_root, context.mimic_constraints)
 
     # add_contact(mjcf_root, robot)
 
     # Add weld constraints if specified in metadata
-    add_weld_constraints(mjcf_root, metadata)
+    add_weld_constraints(context.mjcf_root, metadata)
 
     mesh_copy_result = copy_mesh_assets(
-        mjcf_root,
+        context.mjcf_root,
         mesh_assets,
         urdf_dir=urdf_dir,
         target_mesh_dir=target_mesh_dir,
@@ -195,7 +140,7 @@ def convert_urdf_to_mjcf(
     )
     mesh_assets = mesh_copy_result.mesh_assets
     mesh_file_paths = mesh_copy_result.mesh_file_paths
-    add_mesh_assets_to_xml(mjcf_root, mesh_assets, urdf_dir=urdf_dir)
+    add_mesh_assets_to_xml(context.mjcf_root, mesh_assets, urdf_dir=urdf_dir)
 
     adjust_robot_body_height(
         robot_body,
@@ -203,7 +148,7 @@ def convert_urdf_to_mjcf(
         height_offset=metadata.height_offset,
     )
     save_initial_mjcf_and_apply_postprocess(
-        mjcf_root,
+        context.mjcf_root,
         mjcf_path=mjcf_path,
         options=PostprocessOptions(
             metadata=metadata,
