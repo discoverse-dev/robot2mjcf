@@ -19,8 +19,8 @@
 
 ## 已验证的事实
 
-- `uv run pytest` 通过，当前为 `76` 个测试全部通过。
-- 总覆盖率为 `73.35%`，并设置了 `--cov-fail-under=50` 门槛。
+- `uv run pytest` 通过，当前为 `83` 个测试全部通过。
+- 总覆盖率为 `74.14%`，并设置了 `--cov-fail-under=50` 门槛。
 - `uv run ruff check src/robot2mjcf tests` 通过。
 - `uv run mypy src/robot2mjcf tests` 通过，且**不再**依赖对 `robot2mjcf.*` 的全局 `ignore_errors = true`。
 - `uv build` 成功，能生成 sdist 和 wheel。
@@ -52,6 +52,8 @@
 - 为 `postprocess/add_appendix.py`、`postprocess/add_backlash.py`、`postprocess/base_joint.py`、`postprocess/explicit_floor_contacts.py`、`postprocess/make_degrees.py` 补足行为测试。
 - 修复 `make_degrees.py` 对 `default/joint[@range]` 的重复角度转换问题。
 - 继续从 [`convert.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/convert.py) 抽出 MJCF 装配职责，新增 [`conversion_mjcf_assembly.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_mjcf_assembly.py) 承担 actuator / mimic equality 组装。
+- 将 CLI 侧 metadata / appendix 输入装配抽到 [`conversion_cli.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_cli.py)。
+- 将底座高度调整与初始 MJCF 落盘 / 后处理调用抽到 [`conversion_output.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_output.py)。
 - 将 `convert.py` 进一步拆出：
   - [`conversion_helpers.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_helpers.py)
   - [`conversion_postprocess.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_postprocess.py)
@@ -90,6 +92,7 @@
 - `convert.py` 已不再是最初那种单文件全包式实现，多个高复杂度职责已被拆出。
 - 后处理链已有统一入口 [`conversion_postprocess.py`](/Users/jiayufei/ws/robot2mjcf/src/robot2mjcf/conversion_postprocess.py) 和统一配置对象。
 - actuator / mimic equality 装配已不再留在 `convert.py` 内联实现中。
+- CLI 输入装配与输出收尾也已开始从 `convert.py` 剥离。
 - 已显式区分“轻量转换核心”和“重型 mesh 后处理”。
 
 ### 仍然存在的问题
@@ -98,8 +101,8 @@
 
 虽然文件已经明显瘦身，但它依然负责：
 - 顶层流程编排
-- weld 等剩余核心 MJCF 组装与输出收尾
-- 输出收尾逻辑
+- weld 等剩余核心 MJCF 组装
+- 主要流程阶段之间的衔接与调度
 
 这已经比最初状态好很多，但还不是完全细粒度、易替换的架构。
 
@@ -168,14 +171,16 @@ CI 已从“表面存在但并不可靠”提升为“基本可信”：
 
 ### 当前结论
 
-覆盖率已经从 `45%` 提升到 `73.35%`，这是实质性提升，不是形式改善。
+覆盖率已经从 `45%` 提升到 `74.14%`，这是实质性提升，不是形式改善。
 
 关键变化：
 
 - `mjcf2obj.py` 已从 `0%` 提升到 `74%`
 - `add_sensors.py` 已从 `0%` 提升到 `75%`
 - `conversion_assets.py` 已提升到 `89%`
+- `conversion_cli.py` 已达到 `100%`
 - `conversion_mjcf_assembly.py` 已达到 `100%`
+- `conversion_output.py` 已达到 `100%`
 - `mjcf_builders.py` 已提升到 `96%`
 - `postprocess/collisions.py` 已提升到 `88%`
 - `postprocess/add_appendix.py` 已提升到 `89%`

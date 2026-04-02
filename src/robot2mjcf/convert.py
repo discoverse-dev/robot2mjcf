@@ -1,9 +1,7 @@
 """Converts URDF files to MJCF files."""
 
 import argparse
-import json
 import logging
-import traceback
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
@@ -15,6 +13,11 @@ from robot2mjcf.conversion_assets import (
     resolve_workspace_search_paths,
 )
 from robot2mjcf.conversion_body_builder import build_robot_body_tree
+from robot2mjcf.conversion_cli import (
+    load_actuator_metadata_files,
+    load_default_metadata_files,
+    normalize_appendix_files,
+)
 from robot2mjcf.conversion_helpers import (
     build_joint_maps,
     collect_mimic_constraints,
@@ -23,8 +26,9 @@ from robot2mjcf.conversion_helpers import (
     resolve_output_path,
 )
 from robot2mjcf.conversion_mjcf_assembly import add_actuators, add_mimic_equality_constraints
-from robot2mjcf.conversion_postprocess import PostprocessOptions, apply_postprocess_pipeline
-from robot2mjcf.geometry import ParsedJointParams, compute_min_z, format_value
+from robot2mjcf.conversion_output import adjust_robot_body_height, save_initial_mjcf_and_apply_postprocess
+from robot2mjcf.conversion_postprocess import PostprocessOptions
+from robot2mjcf.geometry import ParsedJointParams
 from robot2mjcf.mjcf_builders import (
     ROBOT_CLASS,
     add_assets,
@@ -34,7 +38,6 @@ from robot2mjcf.mjcf_builders import (
     add_weld_constraints,
 )
 from robot2mjcf.model import ActuatorMetadata, DefaultJointMetadata
-from robot2mjcf.utils import save_xml
 
 logger = logging.getLogger(__name__)
 
@@ -194,24 +197,14 @@ def convert_urdf_to_mjcf(
     mesh_file_paths = mesh_copy_result.mesh_file_paths
     add_mesh_assets_to_xml(mjcf_root, mesh_assets, urdf_dir=urdf_dir)
 
-    # Compute minimum z coordinate and adjust robot base position
-    # This is done after all mesh assets are copied so we can load them
-    print("Computing minimum z coordinate from geometries...")
-    min_z: float = compute_min_z(robot_body, mesh_file_paths=mesh_file_paths)
-    computed_offset: float = -min_z + metadata.height_offset
-    logger.info("Auto-detected base offset: %s (min z = %s)", computed_offset, min_z)
-
-    # Adjust the robot body position based on computed offset
-    body_pos_str = robot_body.attrib.get("pos", "0 0 0")
-    body_pos = [float(x) for x in body_pos_str.split()]
-    body_pos[2] += computed_offset
-    robot_body.attrib["pos"] = " ".join(format_value(x) for x in body_pos)
-
-    # Save the initial MJCF file
-    print(f"Saving initial MJCF file to {mjcf_path}")
-    save_xml(mjcf_path, ET.ElementTree(mjcf_root))
-    apply_postprocess_pipeline(
-        mjcf_path,
+    adjust_robot_body_height(
+        robot_body,
+        mesh_file_paths=mesh_file_paths,
+        height_offset=metadata.height_offset,
+    )
+    save_initial_mjcf_and_apply_postprocess(
+        mjcf_root,
+        mjcf_path=mjcf_path,
         options=PostprocessOptions(
             metadata=metadata,
             collision_only=collision_only,
@@ -305,49 +298,13 @@ def main() -> None:
     args = parser.parse_args()
     logger.setLevel(args.log_level)
 
-    # Load default metadata
-    default_metadata: dict[str, DefaultJointMetadata] = {}
-    if args.default_metadata is not None and len(args.default_metadata) > 0:
-        for metadata_file in args.default_metadata:
-            try:
-                with open(metadata_file, "r") as f:
-                    file_metadata = json.load(f)
-                    for key, value in file_metadata.items():
-                        default_metadata[key] = DefaultJointMetadata.from_dict(value)
-                logger.info(f"Loaded default metadata from {metadata_file}")
-            except Exception as e:
-                logger.warning("Failed to load default metadata from %s: %s", metadata_file, e)
-                traceback.print_exc()
-                exit(1)
-
-    default_metadata_arg = default_metadata or None
-
-    # Load actuator metadata
-    actuator_metadata: dict[str, ActuatorMetadata] = {}
-    if args.actuator_metadata is not None and len(args.actuator_metadata) > 0:
-        for metadata_file in args.actuator_metadata:
-            try:
-                with open(metadata_file, "r") as f:
-                    file_metadata = json.load(f)
-                    for key, value in file_metadata.items():
-                        actuator_metadata[key] = ActuatorMetadata.from_dict(value)
-                logger.info(f"Loaded actuator metadata from {metadata_file}")
-            except Exception as e:
-                logger.warning("Failed to load actuator metadata from %s: %s", metadata_file, e)
-                traceback.print_exc()
-                exit(1)
-
-    actuator_metadata_arg = actuator_metadata or None
-
     convert_urdf_to_mjcf(
         urdf_path=args.urdf_path,
         mjcf_path=args.output,
         metadata_file=args.metadata,
-        default_metadata=default_metadata_arg,
-        actuator_metadata=actuator_metadata_arg,
-        appendix_files=[Path(appendix_file) for appendix_file in args.appendix]
-        if args.appendix is not None and len(args.appendix) > 0
-        else None,
+        default_metadata=load_default_metadata_files(args.default_metadata),
+        actuator_metadata=load_actuator_metadata_files(args.actuator_metadata),
+        appendix_files=normalize_appendix_files(args.appendix),
         max_vertices=args.max_vertices,
         collision_only=args.collision_only,
         collision_type=args.collision_type,
