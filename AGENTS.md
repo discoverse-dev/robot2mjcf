@@ -18,15 +18,14 @@
 
 - `src/robot2mjcf/` — Main package source (import name remains `robot2mjcf`)
 - `tests/` — pytest suite
-- `.github/workflows/` — CI (matrix testing + lint + mypy) and TestPyPI release
+- `.github/workflows/` — CI (matrix testing + lint + mypy)
 - `pyproject.toml` — Single source of truth for build, dependencies, and tool configs
 
 ## Packaging & Release
 
-- PyPI / TestPyPI distribution name: `robot2mjcf`
+- PyPI distribution name: `robot2mjcf`
 - In-code import name: `robot2mjcf` (kept for backward compatibility)
-- Release trigger: pushing a `v*` tag automatically publishes to **TestPyPI** via GitHub Actions
-- **Do NOT manually push to the production PyPI**
+- Releases are published manually; pushing a tag does not trigger package publishing
 
 ## Dependency Management
 
