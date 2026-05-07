@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 
+from urdf_to_mjcf.conversion.assets import resolve_mesh_source_path
 from urdf_to_mjcf.core.geometry import GeomElement, ParsedJointParams, rpy_to_quat
 from urdf_to_mjcf.core.materials import get_obj_material_info
 from urdf_to_mjcf.core.model import ActuatorMetadata
@@ -32,6 +35,76 @@ def build_robot_body_tree(
     """Build the MJCF body hierarchy for a URDF robot."""
 
     actuator_joints: list[ParsedJointParams] = []
+
+    mesh_key_by_name: dict[str, str] = {}
+    mesh_name_by_key: dict[str, str] = {}
+
+    def mesh_scale_key(scale: str | None) -> str:
+        if scale is None:
+            return ""
+        try:
+            values = tuple(float(value) for value in scale.split())
+        except ValueError:
+            return " ".join(scale.split())
+        if len(values) == 1:
+            values = (values[0], values[0], values[0])
+        if len(values) == 3:
+            return " ".join(f"{value:g}" for value in values)
+        return " ".join(scale.split())
+
+    def mesh_asset_key(filename: str, *, mode: str, scale: str | None) -> str:
+        source_path, sub_path = resolve_mesh_source_path(
+            filename,
+            urdf_dir=urdf_dir,
+            workspace_search_paths=workspace_search_paths,
+        )
+        if source_path is not None:
+            file_key = f"path:{source_path.expanduser().resolve(strict=False).as_posix()}"
+        else:
+            file_key = f"unresolved:{sub_path}"
+        return f"{file_key}|mode:{mode}|scale:{mesh_scale_key(scale)}"
+
+    def clean_mesh_name_part(value: str) -> str:
+        cleaned = re.sub(r"[^0-9A-Za-z_]+", "_", value).strip("_")
+        return cleaned or "mesh"
+
+    def preferred_mesh_name(filename: str, prefix: str = "", link_prefix: str = "") -> str:
+        name_parts = []
+        if link_prefix:
+            name_parts.append(clean_mesh_name_part(link_prefix))
+        if prefix:
+            name_parts.append(clean_mesh_name_part(prefix))
+        stem = clean_mesh_name_part(Path(filename).stem)
+        name_parts.append(stem)
+        return "_".join(name_parts)
+
+    def register_mesh_asset(filename: str, prefix: str = "", link_prefix: str = "", scale: str | None = None) -> str:
+        mode = prefix or "visual"
+        key = mesh_asset_key(filename, mode=mode, scale=scale)
+        existing_name = mesh_name_by_key.get(key)
+        if existing_name is not None:
+            return existing_name
+
+        base_name = preferred_mesh_name(filename, prefix=prefix, link_prefix=link_prefix)
+        mesh_name = base_name
+        existing_key = mesh_key_by_name.get(mesh_name)
+        if mesh_name in mesh_assets and existing_key != key:
+            suffix = hashlib.sha1(key.encode()).hexdigest()[:8]
+            mesh_name = f"{base_name}_{suffix}"
+            counter = 1
+            while mesh_name in mesh_assets and mesh_key_by_name.get(mesh_name) != key:
+                mesh_name = f"{base_name}_{suffix}_{counter}"
+                counter += 1
+
+        mesh_assets[mesh_name] = filename
+        mesh_key_by_name[mesh_name] = key
+        mesh_name_by_key[key] = mesh_name
+        return mesh_name
+
+    for existing_name, existing_filename in mesh_assets.items():
+        existing_key = mesh_asset_key(existing_filename, mode="existing", scale=None)
+        mesh_key_by_name[existing_name] = existing_key
+        mesh_name_by_key.setdefault(existing_key, existing_name)
 
     def handle_geom_element(
         geom_elem: ET.Element | None, default_size: str, prefix: str = "", link_prefix: str = ""
@@ -68,18 +141,13 @@ def build_robot_body_tree(
         if mesh_elem is not None:
             filename = mesh_elem.attrib.get("filename")
             if filename is not None:
-                mesh_name = Path(filename).stem
-                if prefix:
-                    mesh_name = f"{prefix}_{mesh_name}"
-                if link_prefix:
-                    mesh_name = f"{link_prefix}_{mesh_name}"
-                if mesh_name not in mesh_assets:
-                    mesh_assets[mesh_name] = filename
+                scale = mesh_elem.attrib.get("scale")
+                mesh_name = register_mesh_asset(filename, prefix=prefix, link_prefix=link_prefix, scale=scale)
 
                 return GeomElement(
                     type="mesh",
                     size=None,
-                    scale=mesh_elem.attrib.get("scale"),
+                    scale=scale,
                     mesh=mesh_name,
                 )
 
@@ -206,7 +274,7 @@ def build_robot_body_tree(
 
             collision_geom_elem = collision.find("geometry")
             if collision_geom_elem is not None:
-                geom = handle_geom_element(collision_geom_elem, "1 1 1", prefix="collision")
+                geom = handle_geom_element(collision_geom_elem, "1 1 1", prefix="collision", link_prefix=link_name)
                 collision_geom_attrib["type"] = geom.type
                 if geom.type == "mesh":
                     if geom.mesh is not None:

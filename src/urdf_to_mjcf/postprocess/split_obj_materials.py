@@ -17,6 +17,36 @@ from urdf_to_mjcf.postprocess.mesh_converter import dae2obj, glb2obj
 logger = logging.getLogger(__name__)
 
 
+def build_submesh_info(mesh_name: str, obj_file_path: Path, mesh_dir: Path) -> list[tuple[str, str]] | None:
+    """Build mesh asset names and relative paths for material-split OBJ files."""
+    obj_stem = obj_file_path.stem
+    split_dir = obj_file_path.parent / obj_stem
+    if not split_dir.exists():
+        return None
+
+    submeshes = list(split_dir.glob(f"{obj_stem}_*.obj"))
+    if not submeshes:
+        return None
+
+    link_prefix = ""
+    if mesh_name != obj_stem and obj_stem in mesh_name:
+        prefix_part = mesh_name[: mesh_name.rfind(obj_stem)]
+        if prefix_part.endswith("_"):
+            link_prefix = prefix_part[:-1]
+
+    submesh_info: list[tuple[str, str]] = []
+    for submesh_path in sorted(submeshes):
+        submesh_stem = submesh_path.stem
+        if link_prefix:
+            submesh_name = f"{link_prefix}_{submesh_stem}"
+        else:
+            submesh_name = submesh_stem
+        submesh_rel_path = submesh_path.relative_to(mesh_dir)
+        submesh_info.append((submesh_name, str(submesh_rel_path)))
+
+    return submesh_info
+
+
 def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = None) -> dict[str, Material]:
     """Process MTL materials from OBJ file and split by materials.
 
@@ -72,12 +102,18 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
             if sub_mtls:  # Only append if we have started a material
                 sub_mtls[-1].append(line)
 
-        # Skip processing if there's only one material
-        if len(sub_mtls) <= 1:
-            logger.info(f"OBJ file {obj_file.name} has only one material, skipping split processing")
+        # A single-material OBJ still needs its material registered in MJCF.
+        if len(sub_mtls) == 1:
+            material = Material.from_string(sub_mtls[0])
+            material.name = f"{obj_file.stem}_{material.name}"
+            materials[material.name] = material
+            logger.info(f"OBJ file {obj_file.name} has one material: {material.name}")
             mesh = trimesh.load_scene(obj_file)
             mesh.export(obj_file.as_posix(), mtl_name=mtl_file.name)
-            # Don't delete MTL here - it might be used by other OBJs
+            # Don't delete MTL here - it might be used by other OBJs.
+            return materials
+
+        if not sub_mtls:
             return materials
 
         # Process each material
@@ -308,10 +344,12 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         # Check if we've already processed this OBJ file
         if obj_file_path in processed_obj_files:
             logger.info(f"OBJ file {obj_file_path} already processed, reusing results")
-            obj_materials, split_info, single_material = processed_obj_files[obj_file_path]
+            obj_materials, cached_split_info, single_material = processed_obj_files[obj_file_path]
             all_mtl_materials.update(obj_materials)
-            if split_info is not None:
-                mesh_splits[mesh_name] = split_info
+            if cached_split_info is not None:
+                split_info = build_submesh_info(mesh_name, obj_file_path, mesh_dir)
+                if split_info is not None:
+                    mesh_splits[mesh_name] = split_info
             if single_material is not None:
                 mesh_single_materials[mesh_name] = single_material
             continue
@@ -321,42 +359,14 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         all_mtl_materials.update(obj_materials)
 
         # Check for split meshes in the same directory as the original OBJ file
-        obj_stem = obj_file_path.stem
-        split_dir = obj_file_path.parent / obj_stem
-
         split_info = None
         single_material = None
 
-        if split_dir.exists():
-            submeshes = list(split_dir.glob(f"{obj_stem}_*.obj"))
-            if submeshes:
-                # Found split meshes
-                submesh_info: list[tuple[str, str]] = []
-                # Extract link prefix from mesh_name if it exists
-                # mesh_name format: linkname_meshstem or just meshstem
-                link_prefix = ""
-                if mesh_name != obj_stem:
-                    # mesh_name has a prefix (link name)
-                    # Extract everything before the last occurrence of obj_stem
-                    if obj_stem in mesh_name:
-                        prefix_part = mesh_name[: mesh_name.rfind(obj_stem)]
-                        if prefix_part.endswith("_"):
-                            link_prefix = prefix_part[:-1]  # Remove trailing underscore
-
-                for i, submesh_path in enumerate(sorted(submeshes)):
-                    submesh_stem = submesh_path.stem
-                    # If mesh_name has a link prefix, add it to submesh name
-                    if link_prefix:
-                        submesh_name_with_prefix = f"{link_prefix}_{submesh_stem}"
-                    else:
-                        submesh_name_with_prefix = submesh_stem
-                    # Get relative path from mesh_dir
-                    submesh_rel_path = submesh_path.relative_to(mesh_dir)
-                    submesh_info.append((submesh_name_with_prefix, str(submesh_rel_path)))
-
-                mesh_splits[mesh_name] = submesh_info
-                split_info = submesh_info
-                logger.info(f"Found {len(submesh_info)} split meshes for {mesh_name}")
+        submesh_info = build_submesh_info(mesh_name, obj_file_path, mesh_dir)
+        if submesh_info is not None:
+            mesh_splits[mesh_name] = submesh_info
+            split_info = submesh_info
+            logger.info(f"Found {len(submesh_info)} split meshes for {mesh_name}")
 
         # Handle single mesh with multiple materials case
         # If obj_materials has content but no split meshes found, read actual material used in OBJ

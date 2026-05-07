@@ -12,6 +12,7 @@ from urdf_to_mjcf.conversion.assets import (
     resolve_mesh_source_path,
     resolve_workspace_search_paths,
 )
+from urdf_to_mjcf.conversion.body_builder import build_robot_body_tree
 from urdf_to_mjcf.conversion.mjcf_assembly import (
     add_assets,
     add_compiler,
@@ -195,6 +196,80 @@ def test_add_mesh_assets_to_xml_normalizes_paths(tmp_path) -> None:
         "relative_mesh": "meshes/meshes/local.obj",
         "parent_relative_mesh": "meshes/meshes/umi_gripper/part.STL",
     }
+
+
+def test_build_robot_body_tree_uses_unique_mesh_assets_for_same_basename(tmp_path) -> None:
+    leg_mesh = write_text(tmp_path / "meshes" / "collision" / "leg" / "link1.stl", "solid leg\nendsolid leg\n")
+    arm_mesh = write_text(tmp_path / "meshes" / "collision" / "arm" / "link1.stl", "solid arm\nendsolid arm\n")
+    reused_leg_mesh = write_text(
+        tmp_path / "meshes" / "visual" / "leg" / "link1.stl",
+        "solid visual\nendsolid visual\n",
+    )
+
+    link_map = {
+        "base": ET.fromstring("<link name='base' />"),
+        "leg_link1": ET.fromstring(
+            f"""
+            <link name='leg_link1'>
+              <collision><geometry><mesh filename='{leg_mesh}' /></geometry></collision>
+              <visual><geometry><mesh filename='{reused_leg_mesh}' /></geometry></visual>
+            </link>
+            """
+        ),
+        "left_link1": ET.fromstring(
+            f"""
+            <link name='left_link1'>
+              <collision><geometry><mesh filename='{arm_mesh}' /></geometry></collision>
+              <visual><geometry><mesh filename='{arm_mesh}' /></geometry></visual>
+            </link>
+            """
+        ),
+        "right_link1": ET.fromstring(
+            f"""
+            <link name='right_link1'>
+              <collision><geometry><mesh filename='{arm_mesh}' scale='1 -1 1' /></geometry></collision>
+              <visual><geometry><mesh filename='{arm_mesh}' scale='1 -1 1' /></geometry></visual>
+            </link>
+            """
+        ),
+    }
+    parent_map = {
+        "base": [
+            ("leg_link1", ET.fromstring("<joint name='base_to_leg' type='fixed' />")),
+            ("left_link1", ET.fromstring("<joint name='base_to_arm' type='fixed' />")),
+            ("right_link1", ET.fromstring("<joint name='base_to_right_arm' type='fixed' />")),
+        ]
+    }
+    mesh_assets: dict[str, str] = {}
+
+    body, _ = build_robot_body_tree(
+        "base",
+        link_map=link_map,
+        parent_map=parent_map,
+        actuator_metadata={},
+        collision_only=False,
+        materials={},
+        mesh_assets=mesh_assets,
+        workspace_search_paths=[],
+        urdf_dir=tmp_path,
+    )
+
+    collision_mesh_refs = {
+        geom.attrib["name"]: geom.attrib["mesh"] for geom in body.findall(".//geom[@class='collision']")
+    }
+
+    assert collision_mesh_refs["leg_link1_collision"] != collision_mesh_refs["left_link1_collision"]
+    assert collision_mesh_refs["right_link1_collision"] != collision_mesh_refs["left_link1_collision"]
+    assert mesh_assets[collision_mesh_refs["leg_link1_collision"]] == str(leg_mesh)
+    assert mesh_assets[collision_mesh_refs["left_link1_collision"]] == str(arm_mesh)
+    assert mesh_assets[collision_mesh_refs["right_link1_collision"]] == str(arm_mesh)
+
+    left_visual = body.find(".//geom[@name='left_link1_visual']")
+    right_visual = body.find(".//geom[@name='right_link1_visual']")
+    assert left_visual is not None
+    assert right_visual is not None
+    assert left_visual.attrib["mesh"] != collision_mesh_refs["left_link1_collision"]
+    assert right_visual.attrib["mesh"] != left_visual.attrib["mesh"]
 
 
 def test_add_compiler_replaces_existing_element() -> None:
