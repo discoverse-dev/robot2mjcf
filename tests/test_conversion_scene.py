@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from urdf_to_mjcf.conversion.pipeline import ConversionContext, assemble_robot_scene
+from urdf_to_mjcf.conversion.pipeline import ConversionContext, add_extra_joints, assemble_robot_scene
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, ExtraJoint
 
 
 def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_path, monkeypatch) -> None:
@@ -21,6 +21,7 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
         root_link_name="base",
         actuator_metadata={"joint1": ActuatorMetadata(actuator_type="motor")},
         mimic_constraints=[("joint0", "joint1", 1.0, 0.0)],
+        metadata=ConversionMetadata(),
     )
     robot_body = ET.Element("body", attrib={"name": "base"})
     actuator_joints = [ParsedJointParams(name="joint1", type="hinge")]
@@ -88,3 +89,51 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
         ("mimic", [("joint0", "joint1", 1.0, 0.0)]),
         ("mesh_xml", {"mesh_a": "mesh_a.obj"}),
     ]
+
+
+def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
+    robot_body = ET.fromstring('<body name="base"><body name="arm" /></body>')
+    actuator_joints: list[ParsedJointParams] = []
+    extra_joints = [
+        ExtraJoint(
+            body_name="base",
+            name="base_x",
+            type="slide",
+            axis=[1, 0, 0],
+            joint_class="base_slide",
+            range=[-1, 1],
+        ),
+        ExtraJoint(
+            body_name="base",
+            name="base_y",
+            type="slide",
+            axis=[0, 1, 0],
+            joint_class="base_slide",
+            range=[-2, 2],
+        ),
+        ExtraJoint(
+            body_name="base",
+            name="base_yaw",
+            type="hinge",
+            axis=[0, 0, 1],
+            joint_class="base_yaw",
+        ),
+    ]
+
+    add_extra_joints(robot_body, actuator_joints, extra_joints)
+
+    joints = robot_body.findall("joint")
+    assert [joint.attrib["name"] for joint in joints] == ["base_x", "base_y", "base_yaw"]
+    assert joints[0].attrib == {
+        "name": "base_x",
+        "type": "slide",
+        "axis": "1.0 0.0 0.0",
+        "class": "base_slide",
+        "range": "-1.0 1.0",
+    }
+    assert robot_body.find("inertial").attrib == {
+        "pos": "0 0 0",
+        "mass": "0.001",
+        "diaginertia": "1e-06 1e-06 1e-06",
+    }
+    assert [joint.name for joint in actuator_joints] == ["base_x", "base_y", "base_yaw"]

@@ -37,12 +37,26 @@ def test_conversion_metadata_defaults() -> None:
     meta = ConversionMetadata()
     assert meta.freejoint is True
     assert meta.add_floor is True
+    assert meta.extra_joints == []
     assert len(meta.cameras) == 2
     assert meta.cameras[0].fovy == 90.0
 
 
 def test_conversion_metadata_json_roundtrip() -> None:
-    meta = ConversionMetadata(height_offset=0.5, angle="degree")
+    meta = ConversionMetadata(
+        height_offset=0.5,
+        angle="degree",
+        extra_joints=[
+            {
+                "body_name": "base_link",
+                "name": "base_x",
+                "type": "slide",
+                "axis": [1, 0, 0],
+                "joint_class": "base_slide",
+                "range": [-10, 10],
+            }
+        ],
+    )
     raw = meta.model_dump_json() if hasattr(meta, "model_dump_json") else meta.json()
     loaded = (
         ConversionMetadata.model_validate_json(raw)
@@ -51,6 +65,8 @@ def test_conversion_metadata_json_roundtrip() -> None:
     )
     assert loaded.height_offset == 0.5
     assert loaded.angle == "degree"
+    assert loaded.extra_joints[0].body_name == "base_link"
+    assert loaded.extra_joints[0].name == "base_x"
 
 
 def test_collision_geometry_enum() -> None:
