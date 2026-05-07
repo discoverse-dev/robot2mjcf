@@ -137,7 +137,7 @@ def compute_min_z(
     body: ET.Element,
     parent_transform: list[list[float]] | None = None,
     mesh_file_paths: dict[str, Path] | None = None,
-    mesh_cache: dict[str, float] | None = None,
+    mesh_cache: dict[str, np.ndarray] | None = None,
 ) -> float:
     """Recursively computes the minimum Z value in the world frame.
 
@@ -147,7 +147,7 @@ def compute_min_z(
         body: The current body element.
         parent_transform: The transform of the parent body.
         mesh_file_paths: Dictionary mapping mesh names to their actual file paths.
-        mesh_cache: Cache for mesh min_z values to avoid reloading.
+        mesh_cache: Cache for mesh vertices to avoid reloading.
 
     Returns:
         The minimum Z value in the world frame.
@@ -174,39 +174,33 @@ def compute_min_z(
             geom_tf: list[list[float]] = build_transform(gpos_str, gquat_str)
             total_tf: list[list[float]] = mat_mult(body_tf, geom_tf)
 
-            # The translation part of T_total is in column 3.
-            z: float = total_tf[2][3]
             geom_type: str = child.attrib.get("type", "")
-            if geom_type == "box":
-                size_vals: list[float] = list(map(float, child.attrib.get("size", "0 0 0").split()))
-                half_height: float = size_vals[2] if len(size_vals) >= 3 else 0.0
-                candidate: float = z - half_height
-            elif geom_type == "cylinder":
-                size_vals = list(map(float, child.attrib.get("size", "0 0").split()))
-                half_length: float = size_vals[1] if len(size_vals) >= 2 else 0.0
-                candidate = z - half_length
-            elif geom_type == "sphere":
-                r = float(child.attrib.get("size", "0"))
-                candidate = z - r
+            if geom_type in {"box", "cylinder", "sphere", "capsule", "ellipsoid"}:
+                size_vals = list(map(float, child.attrib.get("size", "").split()))
+                candidate = _primitive_min_z(geom_type, size_vals, total_tf)
             elif geom_type == "mesh":
                 # Load mesh and compute actual min_z
                 mesh_name = child.attrib.get("mesh")
                 if mesh_name and mesh_file_paths and mesh_name in mesh_file_paths:
-                    if mesh_name not in mesh_cache:
+                    scale_str = child.attrib.get("scale")
+                    cache_key = f"{mesh_name}|{scale_str or ''}"
+                    if cache_key not in mesh_cache:
                         mesh_file_path = mesh_file_paths[mesh_name]
-                        mesh_min_z = _compute_mesh_min_z(mesh_file_path, child.attrib.get("scale"))
-                        mesh_cache[mesh_name] = mesh_min_z
-                    else:
-                        mesh_min_z = mesh_cache[mesh_name]
+                        mesh_cache[cache_key] = _load_mesh_vertices(mesh_file_path, scale_str)
 
-                    candidate = z + mesh_min_z
+                    vertices = mesh_cache[cache_key]
+                    if vertices.size:
+                        candidate = float(_transform_points(total_tf, vertices)[:, 2].min())
+                    else:
+                        candidate = float(np.asarray(total_tf, dtype=float)[2, 3])
                 else:
                     # Fallback to conservative estimate if mesh not available
+                    z = total_tf[2][3]
                     candidate = z - 0.2
                     if mesh_name:
                         logger.warning(f"Mesh {mesh_name} not found in mesh_file_paths, using fallback estimate")
             else:
-                candidate = z
+                candidate = total_tf[2][3]
 
             local_min_z = min(candidate, local_min_z)
 
@@ -217,33 +211,67 @@ def compute_min_z(
     return local_min_z
 
 
-def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> float:
-    """Compute the minimum Z value from a mesh file.
+def _transform_points(transform: list[list[float]], points: np.ndarray) -> np.ndarray:
+    """Apply a homogeneous transform to local 3D points."""
+    if points.size == 0:
+        return points
 
-    Args:
-        mesh_file_path: Full path to the mesh file.
-        scale_str: Optional scale string (e.g., "1 1 1").
+    transform_np = np.asarray(transform, dtype=float)
+    homogeneous = np.column_stack([points, np.ones(len(points))])
+    return (homogeneous @ transform_np.T)[:, :3]
 
-    Returns:
-        The minimum Z value in the mesh's local frame.
-    """
+
+def _primitive_min_z(geom_type: str, size_vals: list[float], total_tf: list[list[float]]) -> float:
+    """Compute world-frame minimum z for a MuJoCo primitive geom."""
+    transform_np = np.asarray(total_tf, dtype=float)
+    center_z = float(transform_np[2, 3])
+    z_row = transform_np[2, :3]
+
+    if geom_type == "box":
+        half_extents = np.array((size_vals + [0.0, 0.0, 0.0])[:3], dtype=float)
+        return center_z - float(np.dot(np.abs(z_row), half_extents))
+
+    if geom_type == "cylinder":
+        radius = size_vals[0] if len(size_vals) >= 1 else 0.0
+        half_length = size_vals[1] if len(size_vals) >= 2 else 0.0
+        radial_z = math.hypot(float(z_row[0]), float(z_row[1]))
+        axial_z = abs(float(z_row[2]))
+        return center_z - radius * radial_z - half_length * axial_z
+
+    if geom_type == "capsule":
+        radius = size_vals[0] if len(size_vals) >= 1 else 0.0
+        half_length = size_vals[1] if len(size_vals) >= 2 else 0.0
+        axial_z = abs(float(z_row[2]))
+        return center_z - radius - half_length * axial_z
+
+    if geom_type == "sphere":
+        radius = size_vals[0] if size_vals else 0.0
+        return center_z - radius
+
+    if geom_type == "ellipsoid":
+        radii = np.array((size_vals + [0.0, 0.0, 0.0])[:3], dtype=float)
+        return center_z - float(np.linalg.norm(z_row * radii))
+
+    return center_z
+
+
+def _load_mesh_vertices(mesh_file_path: Path, scale_str: str | None = None) -> np.ndarray:
+    """Load mesh vertices with optional scale applied."""
     try:
         import trimesh
     except ImportError:
         logger.warning("trimesh not available, using fallback for mesh min_z computation")
-        return -0.2
+        return np.empty((0, 3), dtype=float)
 
     if not mesh_file_path.exists():
         logger.warning(f"compute mesh z min: Mesh file not found: {mesh_file_path}")
-        return 0.0
+        return np.empty((0, 3), dtype=float)
 
     logger.info(f"Loading mesh file: {mesh_file_path}")
 
     try:
-        # Load the mesh
         mesh = trimesh.load(str(mesh_file_path), force="mesh")
 
-        # Handle scale if provided
         if scale_str:
             scale_vals = list(map(float, scale_str.split()))
             if len(scale_vals) == 3:
@@ -260,18 +288,34 @@ def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> f
             elif len(scale_vals) == 1:
                 mesh.apply_scale(scale_vals[0])
 
-        # Get minimum Z coordinate from vertices
         if hasattr(mesh, "vertices") and len(mesh.vertices) > 0:
-            min_z = float(mesh.vertices[:, 2].min())
-            logger.info(f"Computed min_z for mesh '{mesh_file_path.name}': {min_z}")
-            return min_z
-        else:
-            logger.warning(f"Mesh '{mesh_file_path.name}' has no vertices")
-            return 0.0
+            return np.asarray(mesh.vertices, dtype=float)
+
+        logger.warning(f"Mesh '{mesh_file_path.name}' has no vertices")
+        return np.empty((0, 3), dtype=float)
 
     except Exception as e:
         logger.warning(f"Failed to load mesh '{mesh_file_path.name}': {e}")
+        return np.empty((0, 3), dtype=float)
+
+
+def _compute_mesh_min_z(mesh_file_path: Path, scale_str: str | None = None) -> float:
+    """Compute the minimum Z value from a mesh file.
+
+    Args:
+        mesh_file_path: Full path to the mesh file.
+        scale_str: Optional scale string (e.g., "1 1 1").
+
+    Returns:
+        The minimum Z value in the mesh's local frame.
+    """
+    vertices = _load_mesh_vertices(mesh_file_path, scale_str)
+    if vertices.size == 0:
         return 0.0
+
+    min_z = float(vertices[:, 2].min())
+    logger.info(f"Computed min_z for mesh '{mesh_file_path.name}': {min_z}")
+    return min_z
 
 
 def rpy_to_quat(rpy_str: str) -> str:
