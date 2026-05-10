@@ -7,6 +7,7 @@ from urdf_to_mjcf.core.model import (
     CollisionType,
     ConversionMetadata,
     DefaultJointMetadata,
+    ExtraJoint,
 )
 
 
@@ -47,14 +48,14 @@ def test_conversion_metadata_json_roundtrip() -> None:
         height_offset=0.5,
         angle="degree",
         extra_joints=[
-            {
-                "body_name": "base_link",
-                "name": "base_x",
-                "type": "slide",
-                "axis": [1, 0, 0],
-                "joint_class": "base_slide",
-                "range": [-10, 10],
-            }
+            ExtraJoint(
+                body_name="base_link",
+                name="base_x",
+                type="slide",
+                axis=[1, 0, 0],
+                joint_class="base_slide",
+                range=[-10, 10],
+            )
         ],
     )
     raw = meta.model_dump_json() if hasattr(meta, "model_dump_json") else meta.json()

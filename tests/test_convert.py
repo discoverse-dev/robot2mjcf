@@ -51,7 +51,7 @@ EXPECTED_SIGNATURES: dict[str, dict[str, Any]] = {
             "body": 9,
             "geom": 38,
             "mesh": 34,
-            "material": 9,
+            "material": 8,
             "actuator": 8,
             "equality": 1,
         },

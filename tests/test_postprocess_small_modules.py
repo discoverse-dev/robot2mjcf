@@ -251,8 +251,10 @@ def test_move_mesh_scale_bakes_negative_scale_mesh(tmp_path) -> None:
     assert mesh.attrib["file"] == "meshes/triangle_scaled_1_m1_1.obj"
 
     baked_mesh = trimesh.load(tmp_path / mesh.attrib["file"], force="mesh", process=False)
+    assert isinstance(baked_mesh, trimesh.Trimesh)
     assert baked_mesh.vertices.tolist() == [[0.0, -0.0, 0.0], [1.0, -0.0, 0.0], [0.0, -1.0, 0.0]]
     assert baked_mesh.face_normals[0].tolist() == [0.0, 0.0, 1.0]
+
 
 def test_split_obj_by_materials_rebuilds_submesh_names_for_reused_obj(tmp_path) -> None:
     mesh_path = write_text(tmp_path / "meshes" / "part.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")

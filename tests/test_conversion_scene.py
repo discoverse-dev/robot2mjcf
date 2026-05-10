@@ -131,7 +131,9 @@ def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
         "class": "base_slide",
         "range": "-1.0 1.0",
     }
-    assert robot_body.find("inertial").attrib == {
+    inertial = robot_body.find("inertial")
+    assert inertial is not None
+    assert inertial.attrib == {
         "pos": "0 0 0",
         "mass": "0.001",
         "diaginertia": "1e-06 1e-06 1e-06",
