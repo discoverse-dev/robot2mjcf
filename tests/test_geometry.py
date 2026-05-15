@@ -1,9 +1,11 @@
 """Tests for geometry utilities."""
 
 import math
+import xml.etree.ElementTree as ET
 
 from urdf_to_mjcf.core.geometry import (
     build_transform,
+    compute_min_z,
     format_value,
     parse_vector,
     quat_from_str,
@@ -41,6 +43,20 @@ def test_build_transform() -> None:
     assert t[1][3] == 2.0
     assert t[2][3] == 3.0
     assert t[3] == [0.0, 0.0, 0.0, 1.0]
+
+
+def test_compute_min_z_uses_rotated_cylinder_radius() -> None:
+    body = ET.fromstring(
+        """
+        <body>
+          <body pos="0 0 0.1">
+            <geom type="cylinder" size="0.105 0.025" quat="0.70710678 0 0.70710678 0"/>
+          </body>
+        </body>
+        """
+    )
+
+    assert abs(compute_min_z(body) - -0.005) < 1e-6
 
 
 def test_rpy_to_quat_zero() -> None:

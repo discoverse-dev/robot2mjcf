@@ -25,6 +25,7 @@ Common fields:
 | `touch_sensors` | list | `[]` | Touch sensor definitions |
 | `collision_geometries` | list\|null | `null` | Custom collision geometry replacements |
 | `explicit_contacts` | object\|null | `null` | Explicit floor contact configuration |
+| `extra_joints` | list | `[]` | MJCF-only joints inserted into generated bodies |
 | `weld_constraints` | list | `[]` | Weld constraints (body locking) |
 | `remove_redundancies` | bool | `true` | Remove redundant elements |
 | `maxhullvert` | int\|null | `null` | Max hull vertices for collision |
@@ -46,6 +47,27 @@ Common fields:
 ### Collision Replacement Records
 
 - `CollisionGeometry`: `name`, `collision_type`, `sphere_radius`, `axis_order`, `flip_axis`, `offset_x`, `offset_y`, `offset_z`
+
+### Extra Joint Records
+
+`extra_joints` inserts MJCF joints that do not exist in the source URDF. Use `actuator.json` to add actuators for these joints by name.
+
+```json
+{
+  "extra_joints": [
+    {
+      "body_name": "base_link",
+      "name": "base_x",
+      "type": "slide",
+      "axis": [1, 0, 0],
+      "joint_class": "base_slide",
+      "range": [-1000, 1000]
+    }
+  ]
+}
+```
+
+Fields: `body_name`, `name`, `type`, `axis`, `joint_class`, `range`.
 
 ## `default.json`
 

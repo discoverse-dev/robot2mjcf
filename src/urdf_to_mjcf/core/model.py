@@ -114,6 +114,15 @@ class ExplicitFloorContacts(BaseModel):
     class_name: str = "collision"
 
 
+class ExtraJoint(BaseModel):
+    body_name: str
+    name: str
+    type: Literal["slide", "hinge"]
+    axis: list[float]
+    joint_class: str | None = None
+    range: list[float] | None = None
+
+
 class WeldConstraint(BaseModel):
     """Represents a weld constraint between two bodies.
 
@@ -173,6 +182,7 @@ class ConversionMetadata(BaseModel):
     touch_sensors: list[TouchSensor] = []
     collision_geometries: list[CollisionGeometry] | None = None
     explicit_contacts: ExplicitFloorContacts | None = None
+    extra_joints: list[ExtraJoint] = []
     weld_constraints: list[WeldConstraint] = []
     remove_redundancies: bool = True
     maxhullvert: int | None = None

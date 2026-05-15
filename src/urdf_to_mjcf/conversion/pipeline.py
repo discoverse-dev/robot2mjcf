@@ -30,7 +30,7 @@ from urdf_to_mjcf.conversion.mjcf_assembly import (
     add_visual,
 )
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, ExtraJoint
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ class ConversionContext:
     root_link_name: str
     actuator_metadata: dict[str, ActuatorMetadata]
     mimic_constraints: list[tuple[str, str, float, float]]
+    metadata: ConversionMetadata
 
 
 def create_empty_actuator_metadata(robot_elem: ET.Element) -> dict[str, ActuatorMetadata]:
@@ -112,6 +113,7 @@ def build_conversion_context(
         root_link_name=root_link_name,
         actuator_metadata=resolved_actuator_metadata,
         mimic_constraints=mimic_constraints,
+        metadata=metadata,
     )
 
 
@@ -127,6 +129,66 @@ class SceneAssemblyResult:
     robot_body: ET.Element
     actuator_joints: list[ParsedJointParams]
     mesh_file_paths: dict[str, Path]
+
+
+def find_body(root: ET.Element, name: str) -> ET.Element | None:
+    """Find a body by name in a body subtree."""
+    if root.attrib.get("name") == name:
+        return root
+    for child in root.findall("body"):
+        match = find_body(child, name)
+        if match is not None:
+            return match
+    return None
+
+
+def add_extra_joints(
+    robot_body: ET.Element,
+    actuator_joints: list[ParsedJointParams],
+    extra_joints: list[ExtraJoint],
+) -> None:
+    """Inject MJCF-only joints into generated bodies."""
+    insert_indices: dict[str, int] = {}
+    touched_bodies: set[str] = set()
+
+    for joint in extra_joints:
+        body = find_body(robot_body, joint.body_name)
+        if body is None:
+            raise ValueError(f"Extra joint body not found: {joint.body_name}")
+
+        attrib = {
+            "name": joint.name,
+            "type": joint.type,
+            "axis": " ".join(str(value) for value in joint.axis),
+        }
+        lower = upper = None
+        if joint.joint_class is not None:
+            attrib["class"] = joint.joint_class
+        if joint.range is not None:
+            lower, upper = joint.range
+            attrib["range"] = f"{lower} {upper}"
+        insert_at = insert_indices.get(joint.body_name, 0)
+        body.insert(insert_at, ET.Element("joint", attrib=attrib))
+        insert_indices[joint.body_name] = insert_at + 1
+        touched_bodies.add(joint.body_name)
+        actuator_joints.append(ParsedJointParams(name=joint.name, type=joint.type, lower=lower, upper=upper))
+
+    for body_name in touched_bodies:
+        body = find_body(robot_body, body_name)
+        if body is not None and body.find("inertial") is None:
+            insert_at = insert_indices[body_name]
+            body.insert(insert_at, minimal_inertial())
+
+
+def minimal_inertial() -> ET.Element:
+    return ET.Element(
+        "inertial",
+        attrib={
+            "pos": "0 0 0",
+            "mass": "0.001",
+            "diaginertia": "1e-06 1e-06 1e-06",
+        },
+    )
 
 
 def assemble_robot_scene(
@@ -157,6 +219,7 @@ def assemble_robot_scene(
         urdf_dir=urdf_dir,
     )
     robot_body.attrib["childclass"] = ROBOT_CLASS
+    add_extra_joints(robot_body, actuator_joints, context.metadata.extra_joints)
     context.worldbody.append(robot_body)
 
     obj_materials = collect_single_obj_materials(

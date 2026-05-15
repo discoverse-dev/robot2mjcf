@@ -25,6 +25,7 @@
 | `touch_sensors` | list | `[]` | 触觉传感器定义 |
 | `collision_geometries` | list\|null | `null` | 自定义碰撞几何体替换 |
 | `explicit_contacts` | object\|null | `null` | 显式地面接触配置 |
+| `extra_joints` | list | `[]` | 插入到已生成 body 中的 MJCF-only 关节 |
 | `weld_constraints` | list | `[]` | 焊接约束（body 锁定） |
 | `remove_redundancies` | bool | `true` | 移除冗余元素 |
 | `maxhullvert` | int\|null | `null` | 碰撞凸包最大顶点数 |
@@ -46,6 +47,27 @@
 ### 碰撞替换记录
 
 - `CollisionGeometry`：`name`, `collision_type`, `sphere_radius`, `axis_order`, `flip_axis`, `offset_x`, `offset_y`, `offset_z`
+
+### 额外关节记录
+
+`extra_joints` 用于插入源 URDF 中不存在的 MJCF 关节。需要驱动这些关节时，在 `actuator.json` 中按关节名添加执行器配置。
+
+```json
+{
+  "extra_joints": [
+    {
+      "body_name": "base_link",
+      "name": "base_x",
+      "type": "slide",
+      "axis": [1, 0, 0],
+      "joint_class": "base_slide",
+      "range": [-1000, 1000]
+    }
+  ]
+}
+```
+
+字段：`body_name`, `name`, `type`, `axis`, `joint_class`, `range`。
 
 ## `default.json`
 
