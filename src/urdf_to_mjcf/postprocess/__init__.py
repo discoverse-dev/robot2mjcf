@@ -22,6 +22,7 @@ from urdf_to_mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_
 from urdf_to_mjcf.postprocess.make_degrees import make_degrees
 from urdf_to_mjcf.postprocess.move_mesh_scale import move_mesh_scale
 from urdf_to_mjcf.postprocess.remove_redundancies import remove_redundancies
+from urdf_to_mjcf.postprocess.sanitize_mesh_assets import sanitize_mesh_assets
 from urdf_to_mjcf.postprocess.split_obj_materials import split_obj_by_materials
 from urdf_to_mjcf.postprocess.update_mesh import update_mesh
 
@@ -119,4 +120,6 @@ def apply_postprocess_pipeline(
         for appendix_file in options.appendix_files:
             add_appendix(mjcf_path, appendix_file)
 
+    print("Sanitizing mesh assets...")
+    sanitize_mesh_assets(mjcf_path)
     maybe_capture_robot_images(mjcf_path, capture_images=options.capture_images)

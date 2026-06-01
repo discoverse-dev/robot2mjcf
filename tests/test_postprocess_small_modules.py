@@ -21,6 +21,7 @@ from urdf_to_mjcf.postprocess.make_degrees import (
     update_rpy_attributes,
 )
 from urdf_to_mjcf.postprocess.move_mesh_scale import move_mesh_scale
+from urdf_to_mjcf.postprocess.sanitize_mesh_assets import sanitize_mesh_assets
 from urdf_to_mjcf.postprocess.split_obj_materials import process_obj_materials, split_obj_by_materials
 
 
@@ -254,6 +255,38 @@ def test_move_mesh_scale_bakes_negative_scale_mesh(tmp_path) -> None:
     assert isinstance(baked_mesh, trimesh.Trimesh)
     assert baked_mesh.vertices.tolist() == [[0.0, -0.0, 0.0], [1.0, -0.0, 0.0], [0.0, -1.0, 0.0]]
     assert baked_mesh.face_normals[0].tolist() == [0.0, 0.0, 1.0]
+
+
+def test_sanitize_mesh_assets_removes_missing_mesh_assets_and_geoms(tmp_path) -> None:
+    write_text(tmp_path / "meshes" / "existing.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        """
+        <mujoco>
+          <compiler meshdir='meshes' />
+          <asset>
+            <mesh name='existing' file='existing.obj' />
+            <mesh name='missing' file='missing.obj' />
+            <mesh name='unused_missing' file='unused_missing.obj' />
+          </asset>
+          <worldbody>
+            <body name='body'>
+              <geom name='existing_geom' type='mesh' mesh='existing' />
+              <geom name='missing_geom' type='mesh' mesh='missing' />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    sanitize_mesh_assets(mjcf_path)
+
+    root = ET.parse(mjcf_path).getroot()
+    assert root.find("./asset/mesh[@name='existing']") is not None
+    assert root.find("./asset/mesh[@name='missing']") is None
+    assert root.find("./asset/mesh[@name='unused_missing']") is None
+    assert root.find(".//geom[@name='existing_geom']") is not None
+    assert root.find(".//geom[@name='missing_geom']") is None
 
 
 def test_split_obj_by_materials_rebuilds_submesh_names_for_reused_obj(tmp_path) -> None:

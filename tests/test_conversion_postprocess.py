@@ -84,6 +84,7 @@ def test_apply_postprocess_pipeline_can_skip_heavy_mesh_steps(tmp_path, monkeypa
         "move_mesh_scale",
         "check_shell_meshes",
         "deduplicate_meshes",
+        "sanitize_mesh_assets",
     ]:
         monkeypatch.setattr(f"urdf_to_mjcf.postprocess.{name}", record(name))
 
@@ -108,3 +109,4 @@ def test_apply_postprocess_pipeline_can_skip_heavy_mesh_steps(tmp_path, monkeypa
     assert "split_obj_by_materials" not in called
     assert "update_mesh" not in called
     assert "convex_decomposition" not in called
+    assert "sanitize_mesh_assets" in called
