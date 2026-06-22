@@ -25,6 +25,7 @@ from urdf_to_mjcf.core.model import (
     CollisionParams,
     ConversionMetadata,
     DefaultJointMetadata,
+    JointMetadata,
     WeldConstraint,
     dActuator,
     dJoint,
@@ -270,6 +271,60 @@ def test_build_robot_body_tree_uses_unique_mesh_assets_for_same_basename(tmp_pat
     assert right_visual is not None
     assert left_visual.attrib["mesh"] != collision_mesh_refs["left_link1_collision"]
     assert right_visual.attrib["mesh"] != left_visual.attrib["mesh"]
+
+
+def test_build_robot_body_tree_writes_per_joint_metadata(tmp_path) -> None:
+    link_map = {
+        "base": ET.fromstring("<link name='base' />"),
+        "arm": ET.fromstring("<link name='arm' />"),
+    }
+    parent_map = {
+        "base": [
+            (
+                "arm",
+                ET.fromstring(
+                    """
+                    <joint name='arm_joint' type='revolute'>
+                      <limit lower='-1' upper='1' />
+                      <axis xyz='0 0 1' />
+                    </joint>
+                    """
+                ),
+            )
+        ]
+    }
+
+    body, actuator_joints = build_robot_body_tree(
+        "base",
+        link_map=link_map,
+        parent_map=parent_map,
+        actuator_metadata={},
+        collision_only=False,
+        materials={},
+        mesh_assets={},
+        workspace_search_paths=[],
+        urdf_dir=tmp_path,
+        joint_metadata={
+            "arm_joint": JointMetadata(
+                armature=0.001,
+                stiffness=0.05,
+                damping=0.5,
+                frictionloss=0.5,
+                actuatorfrcrange=[-10.0, 10.0],
+            )
+        },
+    )
+
+    joint = body.find(".//joint[@name='arm_joint']")
+    assert joint is not None
+    assert joint.attrib["type"] == "hinge"
+    assert joint.attrib["range"] == "-1 1"
+    assert joint.attrib["armature"] == "0.001"
+    assert joint.attrib["stiffness"] == "0.05"
+    assert joint.attrib["damping"] == "0.5"
+    assert joint.attrib["frictionloss"] == "0.5"
+    assert joint.attrib["actuatorfrcrange"] == "-10.0 10.0"
+    assert [joint.name for joint in actuator_joints] == ["arm_joint"]
 
 
 def test_add_compiler_replaces_existing_element() -> None:

@@ -203,10 +203,6 @@ def remove_unused_mesh(mjcf_path: str | Path) -> None:
             mesh_file = mesh.attrib.get("file")
             if mesh_file:
                 referenced_files.add(mesh_file)
-                # 如果是obj文件，也包含对应的mtl文件
-                # if mesh_file.lower().endswith('.obj'):
-                #     mtl_file = Path(mesh_file).with_suffix('.mtl').name
-                #     referenced_files.add(str(Path(mesh_file).parent / mtl_file))
 
         # 查找所有mesh文件
         mesh_extensions = [".obj", ".stl", ".dae", ".mtl"]

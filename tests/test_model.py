@@ -8,6 +8,7 @@ from urdf_to_mjcf.core.model import (
     ConversionMetadata,
     DefaultJointMetadata,
     ExtraJoint,
+    JointMetadata,
 )
 
 
@@ -25,6 +26,19 @@ def test_default_joint_metadata_from_dict() -> None:
     meta = DefaultJointMetadata.from_dict(data)
     assert meta.joint.damping == 0.1
     assert meta.actuator.kp == 100.0
+
+
+def test_joint_metadata_from_dict_accepts_empty_actuator() -> None:
+    data = {
+        "damping": 0.5,
+        "armature": 0.001,
+        "actuator": {},
+    }
+    meta = JointMetadata.from_dict(data)
+    assert meta.damping == 0.5
+    assert meta.armature == 0.001
+    assert meta.actuator is not None
+    assert meta.actuator.actuator_type is None
 
 
 def test_actuator_metadata_from_dict() -> None:

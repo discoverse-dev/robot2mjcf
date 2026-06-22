@@ -10,6 +10,7 @@ import pytest
 from urdf_to_mjcf.cli.convert import (
     load_actuator_metadata_files,
     load_default_metadata_files,
+    load_joint_metadata_files,
     normalize_appendix_files,
 )
 
@@ -70,11 +71,41 @@ def test_load_actuator_metadata_files_merges_in_order(tmp_path) -> None:
     assert loaded["joint2"].actuator_type == "motor"
 
 
+def test_load_joint_metadata_files_supports_joint_params_and_empty_actuator(tmp_path) -> None:
+    metadata = write_json(
+        tmp_path / "joints.json",
+        {
+            "joint1": {
+                "armature": 0.001,
+                "damping": 0.5,
+                "actuator": {"actuator_type": "position", "kp": 10.0},
+            },
+            "joint2": {
+                "frictionloss": 0.02,
+                "actuator": {},
+            },
+        },
+    )
+
+    loaded = load_joint_metadata_files([str(metadata)])
+
+    assert loaded is not None
+    assert loaded["joint1"].armature == 0.001
+    assert loaded["joint1"].actuator is not None
+    assert loaded["joint1"].actuator.actuator_type == "position"
+    assert loaded["joint1"].actuator.kp == 10.0
+    assert loaded["joint2"].frictionloss == 0.02
+    assert loaded["joint2"].actuator is not None
+    assert loaded["joint2"].actuator.actuator_type is None
+
+
 def test_metadata_loaders_return_none_for_empty_inputs() -> None:
     assert load_default_metadata_files(None) is None
     assert load_default_metadata_files([]) is None
     assert load_actuator_metadata_files(None) is None
     assert load_actuator_metadata_files([]) is None
+    assert load_joint_metadata_files(None) is None
+    assert load_joint_metadata_files([]) is None
 
 
 def test_load_default_metadata_files_exits_on_invalid_json(tmp_path) -> None:

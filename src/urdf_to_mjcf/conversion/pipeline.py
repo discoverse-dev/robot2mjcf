@@ -18,7 +18,7 @@ from urdf_to_mjcf.conversion.assets import (
     copy_mesh_assets,
     resolve_workspace_search_paths,
 )
-from urdf_to_mjcf.conversion.body_builder import build_robot_body_tree
+from urdf_to_mjcf.conversion.body_builder import apply_joint_metadata, build_robot_body_tree
 from urdf_to_mjcf.conversion.input import build_joint_maps, collect_mimic_constraints
 from urdf_to_mjcf.conversion.mjcf_assembly import (
     ROBOT_CLASS,
@@ -30,7 +30,13 @@ from urdf_to_mjcf.conversion.mjcf_assembly import (
     add_visual,
 )
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, ExtraJoint
+from urdf_to_mjcf.core.model import (
+    ActuatorMetadata,
+    ConversionMetadata,
+    DefaultJointMetadata,
+    ExtraJoint,
+    JointMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,7 @@ class ConversionContext:
     parent_map: dict[str, list[tuple[str, ET.Element]]]
     root_link_name: str
     actuator_metadata: dict[str, ActuatorMetadata]
+    joint_metadata: dict[str, JointMetadata]
     mimic_constraints: list[tuple[str, str, float, float]]
     metadata: ConversionMetadata
 
@@ -62,6 +69,26 @@ def create_empty_actuator_metadata(robot_elem: ET.Element) -> dict[str, Actuator
         if name:
             actuator_meta[name] = ActuatorMetadata(actuator_type="motor")
     return actuator_meta
+
+
+def create_actuator_metadata_from_joint_metadata(
+    joint_metadata: Mapping[str, JointMetadata],
+) -> dict[str, ActuatorMetadata]:
+    """Extract explicit actuators from per-joint metadata."""
+    actuator_metadata: dict[str, ActuatorMetadata] = {}
+    for name, metadata in joint_metadata.items():
+        actuator = metadata.actuator
+        if actuator is None or actuator.actuator_type is None:
+            continue
+        actuator_metadata[name] = ActuatorMetadata(
+            actuator_type=actuator.actuator_type,
+            kp=actuator.kp,
+            kv=actuator.kv,
+            gear=actuator.gear,
+            ctrlrange=actuator.ctrlrange,
+            forcerange=actuator.forcerange,
+        )
+    return actuator_metadata
 
 
 def resolve_root_link_name(link_map: Mapping[str, ET.Element], child_joints: Mapping[str, ET.Element]) -> str:
@@ -79,17 +106,22 @@ def build_conversion_context(
     default_metadata: Mapping[str, DefaultJointMetadata] | None,
     actuator_metadata: dict[str, ActuatorMetadata] | None,
     collision_only: bool,
+    joint_metadata: dict[str, JointMetadata] | None = None,
 ) -> ConversionContext:
     """Build the shared conversion context used by convert_urdf_to_mjcf."""
-    resolved_actuator_metadata = actuator_metadata
-    if resolved_actuator_metadata is None:
+    resolved_joint_metadata = joint_metadata or {}
+    if actuator_metadata is not None:
+        resolved_actuator_metadata = actuator_metadata
+    elif joint_metadata is not None:
+        resolved_actuator_metadata = create_actuator_metadata_from_joint_metadata(joint_metadata)
+    else:
         logger.warning("Missing joint metadata, falling back to single empty 'motor' class.")
         resolved_actuator_metadata = create_empty_actuator_metadata(robot)
 
     mjcf_root = ET.Element("mujoco", attrib={"model": robot.attrib.get("name", "converted_robot")})
     add_compiler(mjcf_root)
     add_visual(mjcf_root)
-    add_default(mjcf_root, metadata, default_metadata, collision_only)
+    add_default(mjcf_root, metadata, None if joint_metadata is not None else default_metadata, collision_only)
     worldbody = ET.SubElement(mjcf_root, "worldbody")
 
     link_map, parent_map, child_joints = build_joint_maps(robot)
@@ -112,6 +144,7 @@ def build_conversion_context(
         parent_map=parent_map,
         root_link_name=root_link_name,
         actuator_metadata=resolved_actuator_metadata,
+        joint_metadata=resolved_joint_metadata,
         mimic_constraints=mimic_constraints,
         metadata=metadata,
     )
@@ -146,6 +179,7 @@ def add_extra_joints(
     robot_body: ET.Element,
     actuator_joints: list[ParsedJointParams],
     extra_joints: list[ExtraJoint],
+    joint_metadata: Mapping[str, JointMetadata] | None = None,
 ) -> None:
     """Inject MJCF-only joints into generated bodies."""
     insert_indices: dict[str, int] = {}
@@ -167,6 +201,8 @@ def add_extra_joints(
         if joint.range is not None:
             lower, upper = joint.range
             attrib["range"] = f"{lower} {upper}"
+        metadata = joint_metadata.get(joint.name) if joint_metadata is not None else None
+        apply_joint_metadata(attrib, metadata)
         insert_at = insert_indices.get(joint.body_name, 0)
         body.insert(insert_at, ET.Element("joint", attrib=attrib))
         insert_indices[joint.body_name] = insert_at + 1
@@ -217,9 +253,10 @@ def assemble_robot_scene(
         mesh_assets=mesh_assets,
         workspace_search_paths=workspace_search_paths,
         urdf_dir=urdf_dir,
+        joint_metadata=context.joint_metadata,
     )
     robot_body.attrib["childclass"] = ROBOT_CLASS
-    add_extra_joints(robot_body, actuator_joints, context.metadata.extra_joints)
+    add_extra_joints(robot_body, actuator_joints, context.metadata.extra_joints, context.joint_metadata)
     context.worldbody.append(robot_body)
 
     obj_materials = collect_single_obj_materials(

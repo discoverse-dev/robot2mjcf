@@ -14,10 +14,25 @@ import numpy as np
 from urdf_to_mjcf.conversion.assets import resolve_mesh_source_path
 from urdf_to_mjcf.core.geometry import GeomElement, ParsedJointParams, rpy_to_quat
 from urdf_to_mjcf.core.materials import get_obj_material_info
-from urdf_to_mjcf.core.model import ActuatorMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, JointMetadata
 from urdf_to_mjcf.core.package_resolver import resolve_package_path
 
 logger = logging.getLogger(__name__)
+
+JOINT_METADATA_ATTRS = ("stiffness", "actuatorfrcrange", "margin", "armature", "damping", "frictionloss")
+
+
+def apply_joint_metadata(attrib: dict[str, str], metadata: JointMetadata | None) -> None:
+    if metadata is None:
+        return
+    for name in JOINT_METADATA_ATTRS:
+        value = getattr(metadata, name)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            attrib[name] = " ".join(str(item) for item in value)
+        else:
+            attrib[name] = str(value)
 
 
 def build_robot_body_tree(
@@ -31,6 +46,7 @@ def build_robot_body_tree(
     mesh_assets: dict[str, str],
     workspace_search_paths: list[Path],
     urdf_dir: Path,
+    joint_metadata: Mapping[str, JointMetadata] | None = None,
 ) -> tuple[ET.Element, list[ParsedJointParams]]:
     """Build the MJCF body hierarchy for a URDF robot."""
 
@@ -212,6 +228,8 @@ def build_robot_body_tree(
                 axis_elem = joint.find("axis")
                 if axis_elem is not None:
                     joint_attrib["axis"] = axis_elem.attrib.get("xyz", "0 0 1")
+                metadata = joint_metadata.get(joint_name) if joint_metadata is not None else None
+                apply_joint_metadata(joint_attrib, metadata)
                 ET.SubElement(body, "joint", attrib=joint_attrib)
 
                 actuator_joints.append(

@@ -17,6 +17,21 @@ from urdf_to_mjcf.postprocess.mesh_converter import dae2obj, glb2obj
 logger = logging.getLogger(__name__)
 
 
+def material_texture_file(material: Material, obj_file_path: Path, mesh_dir: Path) -> str | None:
+    """Return the MJCF texture file path for an OBJ material diffuse map."""
+    if material.map_Kd is None:
+        return None
+
+    texture_path = Path(material.map_Kd)
+    if not texture_path.is_absolute():
+        texture_path = obj_file_path.parent / texture_path
+
+    try:
+        return texture_path.resolve().relative_to(mesh_dir.resolve()).as_posix()
+    except ValueError:
+        return material.map_Kd
+
+
 def build_submesh_info(mesh_name: str, obj_file_path: Path, mesh_dir: Path) -> list[tuple[str, str]] | None:
     """Build mesh asset names and relative paths for material-split OBJ files."""
     obj_stem = obj_file_path.stem
@@ -45,6 +60,30 @@ def build_submesh_info(mesh_name: str, obj_file_path: Path, mesh_dir: Path) -> l
         submesh_info.append((submesh_name, str(submesh_rel_path)))
 
     return submesh_info
+
+
+def remove_stale_generated_submeshes(obj_target_dir: Path, obj_stem: str) -> None:
+    """Remove prior material-split outputs for this OBJ before writing fresh ones."""
+    if not obj_target_dir.exists():
+        return
+
+    for pattern in (f"{obj_stem}_*.obj", f"{obj_stem}_*.mtl"):
+        for path in obj_target_dir.glob(pattern):
+            if path.is_file():
+                path.unlink()
+
+
+def strip_obj_material_directives(obj_file: Path) -> None:
+    """Remove OBJ material directives after materials have been moved into MJCF."""
+    if not obj_file.exists() or obj_file.suffix.lower() != ".obj":
+        return
+
+    lines = obj_file.read_text().splitlines(keepends=True)
+    stripped_lines = [
+        line for line in lines if not line.lstrip().startswith(("mtllib ", "usemtl "))
+    ]
+    if len(stripped_lines) != len(lines):
+        obj_file.write_text("".join(stripped_lines))
 
 
 def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = None) -> dict[str, Material]:
@@ -108,9 +147,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
             material.name = f"{obj_file.stem}_{material.name}"
             materials[material.name] = material
             logger.info(f"OBJ file {obj_file.name} has one material: {material.name}")
-            mesh = trimesh.load_scene(obj_file)
-            mesh.export(obj_file.as_posix(), mtl_name=mtl_file.name)
-            # Don't delete MTL here - it might be used by other OBJs.
+            files_to_delete.append(mtl_file)
             return materials
 
         if not sub_mtls:
@@ -139,6 +176,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
                 # This maintains the original directory structure
                 obj_stem = obj_file.stem
                 obj_target_dir = obj_file.parent / obj_stem
+                remove_stale_generated_submeshes(obj_target_dir, obj_stem)
                 obj_target_dir.mkdir(parents=True, exist_ok=True)
 
                 logger.info(f"Splitting OBJ file {obj_file.name} by materials in: {obj_target_dir}")
@@ -164,6 +202,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
                     logger.info(f"Saved submesh: {submesh_name.name} (material: {material_name})")
                 # Mark original files for deletion
                 files_to_delete.append(obj_file)
+                files_to_delete.append(mtl_file)
 
         except ImportError:
             logger.warning("trimesh not available, cannot split OBJ by materials")
@@ -330,6 +369,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
 
     # Process each OBJ file
     all_mtl_materials: dict[str, Material] = {}
+    material_source_objs: dict[str, Path] = {}
     mesh_splits: dict[str, list[tuple[str, str]]] = {}
     mesh_single_materials: dict[str, str] = {}
     processed_obj_files: dict[Path, tuple[dict[str, Material], list[tuple[str, str]] | None, str | None]] = {}
@@ -346,6 +386,8 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             logger.info(f"OBJ file {obj_file_path} already processed, reusing results")
             obj_materials, cached_split_info, single_material = processed_obj_files[obj_file_path]
             all_mtl_materials.update(obj_materials)
+            for material_name in obj_materials:
+                material_source_objs.setdefault(material_name, obj_file_path)
             if cached_split_info is not None:
                 split_info = build_submesh_info(mesh_name, obj_file_path, mesh_dir)
                 if split_info is not None:
@@ -357,6 +399,8 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         # Process this OBJ file for the first time
         obj_materials = process_obj_materials(obj_file_path, files_to_delete)
         all_mtl_materials.update(obj_materials)
+        for material_name in obj_materials:
+            material_source_objs.setdefault(material_name, obj_file_path)
 
         # Check for split meshes in the same directory as the original OBJ file
         split_info = None
@@ -415,8 +459,15 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             "name": material.name,
             # "specular": material.mjcf_specular(),
             # "shininess": material.mjcf_shininess(),
-            "rgba": material.mjcf_rgba(),
         }
+        source_obj = material_source_objs[material.name]
+        texture_file = material_texture_file(material, source_obj, mesh_dir)
+        if texture_file is None:
+            material_attrib["rgba"] = material.mjcf_rgba()
+        else:
+            texture_name = f"{material.name}_texture"
+            ET.SubElement(asset, "texture", attrib={"type": "2d", "name": texture_name, "file": texture_file})
+            material_attrib["texture"] = texture_name
         ET.SubElement(asset, "material", attrib=material_attrib)
         logger.info(f"Added MTL material: {material.name}")
 
@@ -521,12 +572,15 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     split_original_meshes = set(mesh_splits.keys())
 
     # Collect all existing elements in asset section
+    existing_textures: list[ET.Element] = []
     existing_materials: list[ET.Element] = []
     existing_meshes: list[ET.Element] = []
     other_elements: list[ET.Element] = []
 
     for child in list(asset):
-        if child.tag == "material":
+        if child.tag == "texture":
+            existing_textures.append(child)
+        elif child.tag == "material":
             existing_materials.append(child)
         elif child.tag == "mesh":
             mesh_name = child.get("name", "")
@@ -544,7 +598,10 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             other_elements.append(child)
         asset.remove(child)
 
-    # Re-add elements in the desired order: materials first, then meshes, then others
+    # Re-add elements in the desired order: textures, materials, meshes, then others
+    for texture_elem in existing_textures:
+        asset.append(texture_elem)
+
     for material_elem in existing_materials:
         asset.append(material_elem)
 
@@ -555,6 +612,11 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
         asset.append(other)
 
     logger.info(f"Reorganized asset section: {len(existing_materials)} materials, {len(existing_meshes)} meshes")
+
+    for mesh_elem in asset.findall("mesh"):
+        mesh_file = mesh_elem.get("file", "")
+        if mesh_file.lower().endswith(".obj"):
+            strip_obj_material_directives(mesh_dir / mesh_file)
 
     # Save the updated MJCF file
     save_xml(mjcf_path, tree)

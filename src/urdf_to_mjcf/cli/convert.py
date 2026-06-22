@@ -21,7 +21,7 @@ from urdf_to_mjcf.conversion.output import (
     save_initial_mjcf_and_apply_postprocess,
 )
 from urdf_to_mjcf.conversion.pipeline import assemble_robot_scene, build_conversion_context
-from urdf_to_mjcf.core.model import ActuatorMetadata, DefaultJointMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, DefaultJointMetadata, JointMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,15 @@ def load_actuator_metadata_files(metadata_files: Sequence[str] | None) -> dict[s
     )
 
 
+def load_joint_metadata_files(metadata_files: Sequence[str] | None) -> dict[str, JointMetadata] | None:
+    """Load per-joint MJCF metadata files from CLI arguments."""
+    return _load_metadata_files(
+        metadata_files,
+        label="joint",
+        parser=JointMetadata.from_dict,
+    )
+
+
 def normalize_appendix_files(appendix_files: Sequence[str] | None) -> list[Path] | None:
     """Convert appendix file CLI arguments to Path objects."""
     if not appendix_files:
@@ -96,6 +105,7 @@ def convert_urdf_to_mjcf(
     *,
     default_metadata: Mapping[str, DefaultJointMetadata] | None = None,
     actuator_metadata: dict[str, ActuatorMetadata] | None = None,
+    joint_metadata: dict[str, JointMetadata] | None = None,
     appendix_files: list[Path] | None = None,
     max_vertices: int = 1000000,
     collision_only: bool = False,
@@ -111,6 +121,7 @@ def convert_urdf_to_mjcf(
         metadata_file: Optional path to metadata file.
         default_metadata: Optional default metadata.
         actuator_metadata: Optional actuator metadata.
+        joint_metadata: Optional per-joint dynamics and actuator metadata.
         appendix_files: Optional list of appendix files.
         max_vertices: Maximum number of vertices in the mesh.
         collision_only: If true, use simplified collision geometry without visual appearance for visual representation.
@@ -131,6 +142,7 @@ def convert_urdf_to_mjcf(
         metadata=inputs.metadata,
         default_metadata=default_metadata,
         actuator_metadata=actuator_metadata,
+        joint_metadata=joint_metadata,
         collision_only=collision_only,
     )
     scene = assemble_robot_scene(
@@ -217,6 +229,13 @@ def main() -> None:
         help="JSON files containing actuator metadata. Multiple files will be merged, with later files overriding earlier ones.",
     )
     parser.add_argument(
+        "-jm",
+        "--joint-metadata",
+        nargs="*",
+        default=None,
+        help="JSON files containing per-joint dynamics and actuator metadata. Multiple files will be merged, with later files overriding earlier ones.",
+    )
+    parser.add_argument(
         "-a",
         "--appendix",
         nargs="*",
@@ -254,6 +273,7 @@ def main() -> None:
         metadata_file=args.metadata,
         default_metadata=load_default_metadata_files(args.default_metadata),
         actuator_metadata=load_actuator_metadata_files(args.actuator_metadata),
+        joint_metadata=load_joint_metadata_files(args.joint_metadata),
         appendix_files=normalize_appendix_files(args.appendix),
         max_vertices=args.max_vertices,
         collision_only=args.collision_only,

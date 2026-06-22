@@ -6,8 +6,6 @@ import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import trimesh
-
 from urdf_to_mjcf.postprocess.base_joint import fix_base_joint
 from urdf_to_mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
 from urdf_to_mjcf.postprocess.make_degrees import (
@@ -22,7 +20,13 @@ from urdf_to_mjcf.postprocess.make_degrees import (
 )
 from urdf_to_mjcf.postprocess.move_mesh_scale import move_mesh_scale
 from urdf_to_mjcf.postprocess.sanitize_mesh_assets import sanitize_mesh_assets
-from urdf_to_mjcf.postprocess.split_obj_materials import process_obj_materials, split_obj_by_materials
+from urdf_to_mjcf.postprocess.split_obj_materials import (
+    build_submesh_info,
+    process_obj_materials,
+    remove_stale_generated_submeshes,
+    split_obj_by_materials,
+)
+from urdf_to_mjcf.postprocess.update_mesh import update_mesh
 
 
 def write_text(path: Path, content: str) -> Path:
@@ -210,7 +214,69 @@ def test_process_obj_materials_registers_single_material_obj(tmp_path) -> None:
     assert materials["link1_metal_black"].mjcf_rgba() == "0.01 0.01 0.01 1.0"
 
 
-def test_move_mesh_scale_bakes_negative_scale_mesh(tmp_path) -> None:
+def test_mesh_postprocess_preserves_obj_texture_materials(tmp_path) -> None:
+    obj_path = write_text(
+        tmp_path / "meshes" / "torso" / "torso.obj",
+        "\n".join(
+            [
+                "mtllib torso.mtl",
+                "usemtl material_0",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+            ]
+        ),
+    )
+    write_text(
+        obj_path.with_suffix(".mtl"),
+        "\n".join(
+            [
+                "newmtl material_0",
+                "Kd 0.4 0.4 0.4",
+                "map_Kd material_0.png",
+            ]
+        ),
+    )
+    write_text(obj_path.parent / "material_0.png", "png")
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        """
+        <mujoco>
+          <compiler meshdir="." />
+          <asset>
+            <material name="chassis_material_0" rgba="0.4 0.4 0.4 1.0" />
+            <mesh name="torso_base_link_torso" file="meshes/torso/torso.obj" />
+          </asset>
+          <worldbody>
+            <body name="torso_base_link">
+              <geom name="torso_base_link_visual" type="mesh" mesh="torso_base_link_torso" material="default_material" class="visual" />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    split_obj_by_materials(mjcf_path)
+    update_mesh(mjcf_path, max_vertices=1000000)
+
+    root = ET.parse(mjcf_path).getroot()
+    geom = root.find(".//geom[@name='torso_base_link_visual']")
+    texture = root.find("./asset/texture[@name='torso_material_0_texture']")
+    material = root.find("./asset/material[@name='torso_material_0']")
+
+    assert geom is not None
+    assert geom.attrib["material"] == "torso_material_0"
+    assert texture is not None
+    assert texture.attrib["file"] == "meshes/torso/material_0.png"
+    assert material is not None
+    assert material.attrib["texture"] == "torso_material_0_texture"
+    assert not obj_path.with_suffix(".mtl").exists()
+    assert "mtllib" not in obj_path.read_text()
+    assert "usemtl" not in obj_path.read_text()
+
+
+def test_move_mesh_scale_moves_negative_scale_to_mesh_asset(tmp_path) -> None:
     mesh_path = write_text(
         tmp_path / "meshes" / "triangle.obj",
         "\n".join(
@@ -248,13 +314,9 @@ def test_move_mesh_scale_bakes_negative_scale_mesh(tmp_path) -> None:
 
     mesh = root.find(f"./asset/mesh[@name='{geom.attrib['mesh']}']")
     assert mesh is not None
-    assert "scale" not in mesh.attrib
-    assert mesh.attrib["file"] == "meshes/triangle_scaled_1_m1_1.obj"
-
-    baked_mesh = trimesh.load(tmp_path / mesh.attrib["file"], force="mesh", process=False)
-    assert isinstance(baked_mesh, trimesh.Trimesh)
-    assert baked_mesh.vertices.tolist() == [[0.0, -0.0, 0.0], [1.0, -0.0, 0.0], [0.0, -1.0, 0.0]]
-    assert baked_mesh.face_normals[0].tolist() == [0.0, 0.0, 1.0]
+    assert mesh.attrib["scale"] == "1 -1 1"
+    assert mesh.attrib["file"] == "meshes/triangle.obj"
+    assert not (tmp_path / "meshes" / "triangle_scaled_1_m1_1.obj").exists()
 
 
 def test_sanitize_mesh_assets_removes_missing_mesh_assets_and_geoms(tmp_path) -> None:
@@ -320,3 +382,30 @@ def test_split_obj_by_materials_rebuilds_submesh_names_for_reused_obj(tmp_path) 
     assert {"left_part_0", "left_part_1", "right_part_0", "right_part_1"} <= mesh_names
     assert root.find(".//geom[@name='left_visual_0'][@mesh='left_part_0']") is not None
     assert root.find(".//geom[@name='right_visual_0'][@mesh='right_part_0']") is not None
+    assert "usemtl" not in (split_dir / "part_0.obj").read_text()
+    assert "usemtl" not in (split_dir / "part_1.obj").read_text()
+
+
+def test_generated_submesh_cleanup_removes_stale_scaled_outputs(tmp_path) -> None:
+    mesh_dir = tmp_path / "meshes"
+    obj_file = write_text(mesh_dir / "part.obj", "v 0 0 0\n")
+    split_dir = mesh_dir / "part"
+    current_a = write_text(split_dir / "part_0.obj", "v 0 0 0\n")
+    current_b = write_text(split_dir / "part_1.obj", "v 1 0 0\n")
+    stale_submesh = write_text(
+        split_dir / "part_2_scaled_1_m1_1.obj",
+        "v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl red\nf 1 2 3\n",
+    )
+
+    assert len(build_submesh_info("part", obj_file, tmp_path) or []) == 3
+
+    remove_stale_generated_submeshes(split_dir, "part")
+    current_a.write_text("v 0 0 0\n")
+    current_b.write_text("v 1 0 0\n")
+
+    submeshes = build_submesh_info("part", obj_file, tmp_path)
+    assert submeshes == [
+        ("part_0", "meshes/part/part_0.obj"),
+        ("part_1", "meshes/part/part_1.obj"),
+    ]
+    assert not stale_submesh.exists()

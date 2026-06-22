@@ -49,6 +49,18 @@ class DefaultJointMetadata(BaseModel):
         return cls(joint=joint, actuator=actuator)
 
 
+class JointMetadata(dJoint):
+    actuator: dActuator | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JointMetadata":
+        """Create per-joint MJCF metadata from a plain dictionary."""
+        joint_data = {key: value for key, value in data.items() if key != "actuator"}
+        actuator_data = data.get("actuator")
+        actuator = dActuator(**actuator_data) if actuator_data is not None else None
+        return cls(**joint_data, actuator=actuator)
+
+
 class ActuatorMetadata(BaseModel):
     joint_class: str | None = None
     actuator_type: str | None = None

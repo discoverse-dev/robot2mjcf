@@ -1,9 +1,8 @@
 """Move scale attributes from geom elements to mesh asset definitions.
 
 This post-processing script handles the case where geom elements have scale
-attributes, which MuJoCo doesn't support directly. Positive scales are moved to
-the mesh asset definition. Negative scales are baked into generated mesh files so
-mirrored meshes keep correct face winding and lighting.
+attributes, which MuJoCo doesn't support directly. Scales are moved to the mesh
+asset definition, where MuJoCo applies them to the loaded vertex data.
 """
 
 from __future__ import annotations
@@ -13,8 +12,6 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, Tuple
-
-import trimesh
 
 from urdf_to_mjcf.core.utils import save_xml
 
@@ -43,73 +40,19 @@ def _format_scale(scale: tuple[float, float, float]) -> str:
     return " ".join(_format_number(value) for value in scale)
 
 
-def _scale_token(scale: tuple[float, float, float]) -> str:
-    parts = []
-    for value in scale:
-        token = _format_number(value).replace("-", "m").replace(".", "p")
-        parts.append(token)
-    return "_".join(parts)
-
-
 def _is_identity_scale(scale: tuple[float, float, float]) -> bool:
     return all(abs(value - 1.0) < 1e-12 for value in scale)
 
 
-def _has_negative_scale(scale: tuple[float, float, float]) -> bool:
-    return any(value < 0.0 for value in scale)
-
-
-def _mesh_root(mjcf_path: Path, root: ET.Element) -> Path:
-    compiler = root.find("compiler")
-    meshdir_ref = "." if compiler is None else compiler.attrib.get("meshdir", ".")
-    return (mjcf_path.parent / meshdir_ref).resolve()
-
-
-def _baked_mesh_relative_path(mesh_file: str, scale: tuple[float, float, float], mesh_root: Path) -> str | None:
-    mesh_path = (mesh_root / mesh_file).resolve()
-    if not mesh_path.exists():
-        logger.warning("Cannot bake scaled mesh; file does not exist: %s", mesh_path)
-        return None
-
-    baked_path = mesh_path.with_name(f"{mesh_path.stem}_scaled_{_scale_token(scale)}{mesh_path.suffix}")
-    if not baked_path.exists() or baked_path.stat().st_mtime < mesh_path.stat().st_mtime:
-        try:
-            loaded = trimesh.load(mesh_path, force="scene", process=False)
-            if isinstance(loaded, trimesh.Scene):
-                meshes = loaded.dump(concatenate=False)
-            else:
-                meshes = [loaded]
-
-            scaled_meshes = []
-            scale_matrix = [
-                [scale[0], 0.0, 0.0, 0.0],
-                [0.0, scale[1], 0.0, 0.0],
-                [0.0, 0.0, scale[2], 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-            for mesh in meshes:
-                if not isinstance(mesh, trimesh.Trimesh):
-                    continue
-                scaled = mesh.copy()
-                scaled.apply_transform(scale_matrix)
-                scaled_meshes.append(scaled)
-
-            if not scaled_meshes:
-                logger.warning("Cannot bake scaled mesh; no triangle geometry found in %s", mesh_path)
-                return None
-
-            if len(scaled_meshes) == 1:
-                scaled_meshes[0].export(baked_path)
-            else:
-                trimesh.util.concatenate(scaled_meshes).export(baked_path)
-        except Exception as exc:
-            logger.warning("Failed to bake scaled mesh %s with scale %s: %s", mesh_path, _format_scale(scale), exc)
-            return None
-
-    try:
-        return baked_path.relative_to(mesh_root).as_posix()
-    except ValueError:
-        return baked_path.as_posix()
+def _combine_scale(
+    base_scale: tuple[float, float, float],
+    geom_scale: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    return (
+        base_scale[0] * geom_scale[0],
+        base_scale[1] * geom_scale[1],
+        base_scale[2] * geom_scale[2],
+    )
 
 
 def move_mesh_scale(mjcf_path: str | Path) -> None:
@@ -127,8 +70,6 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
     if asset is None:
         logger.warning("No <asset> section found in MJCF file")
         return
-
-    mesh_root = _mesh_root(mjcf_path, root)
 
     # Build a mapping of mesh name -> mesh element and file path
     mesh_map: Dict[str, Tuple[ET.Element, str]] = {}
@@ -168,13 +109,18 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
                 logger.warning(f"Geom references non-existent mesh: {mesh_name}")
                 continue
 
-            parsed_scale = _parse_scale(scale_str)
-            if parsed_scale is None:
+            geom_scale = _parse_scale(scale_str)
+            if geom_scale is None:
                 logger.warning("Invalid mesh scale '%s' on geom '%s'", scale_str, geom.attrib.get("name", "unnamed"))
                 continue
-            normalized_scale = _format_scale(parsed_scale)
 
             original_mesh_elem, mesh_file = mesh_map[mesh_name]
+            base_scale = _parse_scale(original_mesh_elem.attrib.get("scale", "1 1 1"))
+            if base_scale is None:
+                logger.warning("Invalid mesh asset scale '%s' on mesh '%s'", original_mesh_elem.attrib["scale"], mesh_name)
+                continue
+            effective_scale = _combine_scale(base_scale, geom_scale)
+            normalized_scale = _format_scale(effective_scale)
 
             # Create a key for this mesh+scale combination
             key = (mesh_name, normalized_scale)
@@ -189,7 +135,7 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
                 if original_scale == normalized_scale:
                     # The mesh already has this scale, just remove from geom
                     new_mesh_name = mesh_name
-                elif _is_identity_scale(parsed_scale) and original_scale is None:
+                elif _is_identity_scale(effective_scale) and original_scale is None:
                     new_mesh_name = mesh_name
                 else:
                     # Need to create a new mesh entry
@@ -212,13 +158,7 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
                     mesh_counters[base_name] = counter + 1
 
                     mesh_attrib = {"name": new_mesh_name, "file": mesh_file}
-                    if _has_negative_scale(parsed_scale):
-                        baked_file = _baked_mesh_relative_path(mesh_file, parsed_scale, mesh_root)
-                        if baked_file is not None:
-                            mesh_attrib["file"] = baked_file
-                        else:
-                            mesh_attrib["scale"] = normalized_scale
-                    else:
+                    if not _is_identity_scale(effective_scale):
                         mesh_attrib["scale"] = normalized_scale
 
                     # Create new mesh element in asset section

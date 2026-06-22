@@ -11,7 +11,14 @@ from urdf_to_mjcf.conversion.pipeline import (
     create_empty_actuator_metadata,
     resolve_root_link_name,
 )
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, dActuator, dJoint
+from urdf_to_mjcf.core.model import (
+    ActuatorMetadata,
+    ConversionMetadata,
+    DefaultJointMetadata,
+    JointMetadata,
+    dActuator,
+    dJoint,
+)
 
 
 def test_create_empty_actuator_metadata_creates_motor_entries() -> None:
@@ -80,6 +87,54 @@ def test_build_conversion_context_creates_base_tree_and_resolves_metadata() -> N
     assert context.mjcf_root.find("compiler") is not None
     assert context.mjcf_root.find("visual") is not None
     assert context.mjcf_root.find("default") is not None
+
+
+def test_build_conversion_context_derives_actuators_from_joint_metadata() -> None:
+    robot = ET.fromstring(
+        """
+        <robot name="demo">
+          <link name="base" />
+          <link name="arm" />
+          <joint name="joint1" type="revolute">
+            <parent link="base" />
+            <child link="arm" />
+          </joint>
+          <joint name="joint2" type="revolute">
+            <parent link="arm" />
+            <child link="finger" />
+          </joint>
+          <link name="finger" />
+        </robot>
+        """
+    )
+    default_metadata = {
+        "arm": DefaultJointMetadata(
+            joint=dJoint(damping=1.0),
+            actuator=dActuator(actuator_type="motor"),
+        )
+    }
+    joint_metadata = {
+        "joint1": JointMetadata(
+            damping=0.5,
+            actuator=dActuator(actuator_type="position", kp=10.0),
+        ),
+        "joint2": JointMetadata(actuator=dActuator()),
+    }
+
+    context = build_conversion_context(
+        robot,
+        metadata=ConversionMetadata(),
+        default_metadata=default_metadata,
+        actuator_metadata=None,
+        collision_only=False,
+        joint_metadata=joint_metadata,
+    )
+
+    assert context.joint_metadata is joint_metadata
+    assert list(context.actuator_metadata) == ["joint1"]
+    assert context.actuator_metadata["joint1"].actuator_type == "position"
+    assert context.actuator_metadata["joint1"].kp == 10.0
+    assert context.mjcf_root.find(".//default[@class='arm']") is None
 
 
 def test_build_conversion_context_respects_provided_actuator_metadata() -> None:

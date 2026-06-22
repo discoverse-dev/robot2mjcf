@@ -20,6 +20,7 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
         parent_map={},
         root_link_name="base",
         actuator_metadata={"joint1": ActuatorMetadata(actuator_type="motor")},
+        joint_metadata={},
         mimic_constraints=[("joint0", "joint1", 1.0, 0.0)],
         metadata=ConversionMetadata(),
     )
