@@ -10,7 +10,7 @@ from typing import Any
 
 import trimesh
 
-from urdf_to_mjcf.core.materials import Material, parse_mtl_name
+from urdf_to_mjcf.core.materials import Material, make_obj_material_name, parse_mtl_name
 from urdf_to_mjcf.core.utils import save_xml
 from urdf_to_mjcf.postprocess.mesh_converter import dae2obj, glb2obj
 
@@ -86,7 +86,13 @@ def strip_obj_material_directives(obj_file: Path) -> None:
         obj_file.write_text("".join(stripped_lines))
 
 
-def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = None) -> dict[str, Material]:
+def process_obj_materials(
+    obj_file: Path,
+    files_to_delete: list[Path] | None = None,
+    *,
+    base_dir: Path | None = None,
+    submesh_materials: dict[Path, str] | None = None,
+) -> dict[str, Material]:
     """Process MTL materials from OBJ file and split by materials.
 
     Args:
@@ -144,7 +150,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
         # A single-material OBJ still needs its material registered in MJCF.
         if len(sub_mtls) == 1:
             material = Material.from_string(sub_mtls[0])
-            material.name = f"{obj_file.stem}_{material.name}"
+            material.name = make_obj_material_name(obj_file, material.name, base_dir=base_dir)
             materials[material.name] = material
             logger.info(f"OBJ file {obj_file.name} has one material: {material.name}")
             files_to_delete.append(mtl_file)
@@ -157,7 +163,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
         for sub_mtl in sub_mtls:
             if sub_mtl:  # Make sure the material has content
                 material = Material.from_string(sub_mtl)
-                material.name = f"{obj_file.stem}_{material.name}"
+                material.name = make_obj_material_name(obj_file, material.name, base_dir=base_dir)
                 materials[material.name] = material
                 logger.info(f"Found material: {material.name}")
 
@@ -184,6 +190,7 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
                 logger.info(f"Splitting OBJ into {len(mesh.geometry)} submeshes by material")
                 for i, (material_name, geom) in enumerate(mesh.geometry.items()):
                     submesh_name = obj_target_dir / f"{obj_stem}_{i}.obj"
+                    scoped_material_name = make_obj_material_name(obj_file, material_name, base_dir=base_dir)
                     if type(geom.visual) is trimesh.visual.texture.TextureVisuals:
                         geom.visual.material.name = material_name
                     else:
@@ -197,6 +204,8 @@ def process_obj_materials(obj_file: Path, files_to_delete: list[Path] | None = N
                         "mtl_name": submesh_mtl_file,
                     }
                     geom.export(submesh_name.as_posix(), **export_kwargs)
+                    if submesh_materials is not None and scoped_material_name in materials:
+                        submesh_materials[submesh_name.resolve()] = scoped_material_name
                     # Mark files for deletion instead of deleting immediately
                     files_to_delete.append(obj_target_dir / submesh_mtl_file)
                     logger.info(f"Saved submesh: {submesh_name.name} (material: {material_name})")
@@ -372,6 +381,7 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
     material_source_objs: dict[str, Path] = {}
     mesh_splits: dict[str, list[tuple[str, str]]] = {}
     mesh_single_materials: dict[str, str] = {}
+    submesh_materials: dict[Path, str] = {}
     processed_obj_files: dict[Path, tuple[dict[str, Material], list[tuple[str, str]] | None, str | None]] = {}
 
     for mesh_name, mesh_file in obj_meshes.items():
@@ -397,7 +407,12 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
             continue
 
         # Process this OBJ file for the first time
-        obj_materials = process_obj_materials(obj_file_path, files_to_delete)
+        obj_materials = process_obj_materials(
+            obj_file_path,
+            files_to_delete,
+            base_dir=mesh_dir,
+            submesh_materials=submesh_materials,
+        )
         all_mtl_materials.update(obj_materials)
         for material_name in obj_materials:
             material_source_objs.setdefault(material_name, obj_file_path)
@@ -423,8 +438,9 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
                     for line in f:
                         if line.startswith("usemtl "):
                             mtl_name_raw = line.split()[1].strip()
-                            # Construct the expected material name with obj stem prefix
-                            expected_material_name = f"{obj_file_path.stem}_{mtl_name_raw}"
+                            expected_material_name = make_obj_material_name(
+                                obj_file_path, mtl_name_raw, base_dir=mesh_dir
+                            )
                             if expected_material_name in obj_materials:
                                 actual_material = expected_material_name
                                 break
@@ -510,45 +526,8 @@ def split_obj_by_materials(mjcf_path: str | Path) -> None:
                 new_geom.attrib["name"] = f"{geom_name_base}_{i}"
                 new_geom.attrib["mesh"] = submesh_name
 
-                # Try to find corresponding MTL material
-                assigned_material = "default_material"
-
-                # Read the submesh to find material reference
                 submesh_path = mesh_dir / submesh_file
-                if submesh_path.exists():
-                    try:
-                        with open(submesh_path, "r") as f:
-                            submesh_lines = f.readlines()
-                        for line in submesh_lines:
-                            if line.startswith("usemtl "):
-                                mtl_name_raw = line.split()[1].strip()
-                                # Look for matching material with correct prefix
-                                # The material name should be: {actual_obj_stem}_{mtl_name_raw}
-                                # Need to extract the actual obj stem from mesh_ref (which may have link prefix)
-
-                                # Get the actual OBJ file stem by looking at the submesh_file path
-                                # submesh_file format: path/to/obj_stem/obj_stem_N.obj
-                                submesh_parts = Path(submesh_file).parts
-                                if len(submesh_parts) >= 2:
-                                    # The parent directory name is the actual obj_stem
-                                    actual_obj_stem = submesh_parts[-2]
-                                else:
-                                    # Fallback: try to extract from mesh_ref
-                                    if mesh_ref.endswith(".obj"):
-                                        _ = mesh_ref[:-4]
-                                    else:
-                                        _ = mesh_ref
-                                    # Remove link prefix if present
-                                    # Find the obj_stem in the mesh_ref
-                                    actual_obj_stem = submesh_path.parent.name
-
-                                expected_material_name = f"{actual_obj_stem}_{mtl_name_raw}"
-                                if expected_material_name in all_mtl_materials:
-                                    assigned_material = expected_material_name
-                                    break
-                                break
-                    except Exception as e:
-                        logger.warning(f"Could not read submesh {submesh_path}: {e}")
+                assigned_material = submesh_materials.get(submesh_path.resolve(), "default_material")
 
                 new_geom.attrib["material"] = assigned_material
                 logger.info(f"Created geom {new_geom.attrib['name']} with material {assigned_material}")

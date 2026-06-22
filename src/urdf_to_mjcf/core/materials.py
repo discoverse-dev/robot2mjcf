@@ -23,6 +23,34 @@ MTL_FIELDS = (
 )
 
 
+def sanitize_mjcf_name(name: str) -> str:
+    """Return a MuJoCo-safe identifier."""
+    sanitized = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_")
+    return sanitized or "material"
+
+
+def make_mjcf_material_name(source: str | Path, material_name: str) -> str:
+    """Build a globally unique MJCF material name from a mesh source and raw material name."""
+    source_stem = Path(source).with_suffix("").as_posix()
+    return sanitize_mjcf_name(f"mtl_{source_stem}_{material_name}")
+
+
+def make_obj_material_name(obj_file: Path, material_name: str, *, base_dir: Path | None = None) -> str:
+    """Build a material name scoped by an OBJ path."""
+    source: str | Path = obj_file.name
+    if base_dir is not None:
+        try:
+            source = obj_file.resolve().relative_to(base_dir.resolve())
+        except ValueError:
+            source = obj_file.name
+    return make_mjcf_material_name(source, material_name)
+
+
+def is_source_scoped_mtl_material(name: str | None) -> bool:
+    """Return whether a material name carries source-file identity."""
+    return bool(name and name.startswith("mtl_"))
+
+
 @dataclass
 class Material:
     """A convenience class for constructing MuJoCo materials from MTL files."""

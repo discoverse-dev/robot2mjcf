@@ -120,8 +120,52 @@ def test_collect_single_obj_materials_extracts_named_material(tmp_path) -> None:
         workspace_search_paths=[],
     )
 
-    assert list(materials) == ["arm_steel"]
-    assert materials["arm_steel"].mjcf_rgba() == "0.1 0.2 0.3 0.5"
+    assert list(materials) == ["mtl_meshes_arm_steel"]
+    assert materials["mtl_meshes_arm_steel"].mjcf_rgba() == "0.1 0.2 0.3 0.5"
+
+
+def test_collect_single_obj_materials_scopes_same_basename_by_source_path(tmp_path) -> None:
+    arm_obj = write_text(
+        tmp_path / "meshes" / "arm" / "link3.obj",
+        "\n".join(
+            [
+                "mtllib link3.mtl",
+                "usemtl material_0",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+            ]
+        ),
+    )
+    gripper_obj = write_text(
+        tmp_path / "meshes" / "gripper" / "link3.obj",
+        "\n".join(
+            [
+                "mtllib link3.mtl",
+                "usemtl material_0",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+            ]
+        ),
+    )
+    write_text(arm_obj.with_suffix(".mtl"), "newmtl material_0\nKd 0.1 0.2 0.3\n")
+    write_text(gripper_obj.with_suffix(".mtl"), "newmtl material_0\nKd 0.7 0.8 0.9\n")
+
+    materials = collect_single_obj_materials(
+        {
+            "arm_link3": "meshes/arm/link3.obj",
+            "gripper_link3": "meshes/gripper/link3.obj",
+        },
+        urdf_dir=tmp_path,
+        workspace_search_paths=[],
+    )
+
+    assert sorted(materials) == ["mtl_meshes_arm_link3_material_0", "mtl_meshes_gripper_link3_material_0"]
+    assert materials["mtl_meshes_arm_link3_material_0"].mjcf_rgba() == "0.1 0.2 0.3 1.0"
+    assert materials["mtl_meshes_gripper_link3_material_0"].mjcf_rgba() == "0.7 0.8 0.9 1.0"
 
 
 def test_copy_mesh_assets_copies_obj_and_prunes_missing_geoms(tmp_path) -> None:

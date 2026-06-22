@@ -13,9 +13,8 @@ import numpy as np
 
 from urdf_to_mjcf.conversion.assets import resolve_mesh_source_path
 from urdf_to_mjcf.core.geometry import GeomElement, ParsedJointParams, rpy_to_quat
-from urdf_to_mjcf.core.materials import get_obj_material_info
+from urdf_to_mjcf.core.materials import get_obj_material_info, make_mjcf_material_name
 from urdf_to_mjcf.core.model import ActuatorMetadata, JointMetadata
-from urdf_to_mjcf.core.package_resolver import resolve_package_path
 
 logger = logging.getLogger(__name__)
 
@@ -353,24 +352,15 @@ def build_robot_body_tree(
                 if geom.type == "mesh" and geom.mesh is not None and assigned_material == "default_material":
                     obj_filename = mesh_assets.get(geom.mesh)
                     if obj_filename and obj_filename.lower().endswith(".obj"):
-                        if "package://" in obj_filename:
-                            package_path = obj_filename[len("package://") :]
-                            package_name = package_path.split("/")[0]
-                            sub_path = "/".join(package_path.split("/")[1:])
-                            try:
-                                pkg_root = resolve_package_path(package_name, workspace_search_paths)
-                                obj_file_path = pkg_root / sub_path if pkg_root else None
-                            except Exception:
-                                obj_file_path = None
-                        elif obj_filename.startswith("/"):
-                            obj_file_path = Path(obj_filename)
-                        else:
-                            obj_file_path = urdf_dir / obj_filename
-
+                        obj_file_path, material_source = resolve_mesh_source_path(
+                            obj_filename,
+                            urdf_dir=urdf_dir,
+                            workspace_search_paths=workspace_search_paths,
+                        )
                         if obj_file_path is not None:
                             has_single_material, material_name = get_obj_material_info(obj_file_path)
                             if has_single_material and material_name:
-                                assigned_material = f"{obj_file_path.stem}_{material_name}"
+                                assigned_material = make_mjcf_material_name(material_source, material_name)
                                 logger.info(
                                     "Assigned single OBJ material %s to geom %s",
                                     assigned_material,

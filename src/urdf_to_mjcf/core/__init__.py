@@ -12,7 +12,16 @@ from urdf_to_mjcf.core.geometry import (
     quat_to_rot,
     rpy_to_quat,
 )
-from urdf_to_mjcf.core.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
+from urdf_to_mjcf.core.materials import (
+    Material,
+    copy_obj_with_mtl,
+    get_obj_material_info,
+    is_source_scoped_mtl_material,
+    make_mjcf_material_name,
+    make_obj_material_name,
+    parse_mtl_name,
+    sanitize_mjcf_name,
+)
 from urdf_to_mjcf.core.model import (
     ActuatorMetadata,
     Angle,
@@ -56,7 +65,11 @@ __all__ = [
     "Material",
     "copy_obj_with_mtl",
     "get_obj_material_info",
+    "is_source_scoped_mtl_material",
+    "make_mjcf_material_name",
+    "make_obj_material_name",
     "parse_mtl_name",
+    "sanitize_mjcf_name",
     # model
     "ActuatorMetadata",
     "Angle",

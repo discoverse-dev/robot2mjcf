@@ -12,6 +12,7 @@ from typing import TypedDict
 
 import numpy as np
 
+from urdf_to_mjcf.core.materials import is_source_scoped_mtl_material
 from urdf_to_mjcf.core.utils import save_xml
 
 logger = logging.getLogger(__name__)
@@ -294,9 +295,12 @@ def merge_materials(mjcf_path: str | Path) -> None:
         if not material_name:
             continue
 
-        # 创建材质属性签名(排除name属性)
+        # Source-scoped MTL materials keep their identity even when RGBA values match.
         attrib_items = sorted([(k, v) for k, v in material.attrib.items() if k != "name"])
-        signature = str(attrib_items)
+        if is_source_scoped_mtl_material(material_name):
+            signature = str([("name", material_name), *attrib_items])
+        else:
+            signature = str(attrib_items)
 
         logger.debug(f"材质 '{material_name}' 的签名: {signature}")
 

@@ -9,7 +9,13 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-from urdf_to_mjcf.core.materials import Material, copy_obj_with_mtl, get_obj_material_info, parse_mtl_name
+from urdf_to_mjcf.core.materials import (
+    Material,
+    copy_obj_with_mtl,
+    get_obj_material_info,
+    make_mjcf_material_name,
+    parse_mtl_name,
+)
 from urdf_to_mjcf.core.package_resolver import find_workspace_from_path, resolve_package_path
 
 logger = logging.getLogger(__name__)
@@ -92,7 +98,7 @@ def collect_single_obj_materials(
         if not filename.lower().endswith(".obj"):
             continue
 
-        obj_file_path, _ = resolve_mesh_source_path(
+        obj_file_path, material_source = resolve_mesh_source_path(
             filename,
             urdf_dir=urdf_dir,
             workspace_search_paths=workspace_search_paths,
@@ -126,7 +132,7 @@ def collect_single_obj_materials(
 
             if material_lines:
                 material = Material.from_string(material_lines)
-                material.name = f"{obj_file_path.stem}_{material_name}"
+                material.name = make_mjcf_material_name(material_source, material_name)
                 obj_materials[material.name] = material
                 logger.info("Added single OBJ material: %s", material.name)
         except Exception as exc:

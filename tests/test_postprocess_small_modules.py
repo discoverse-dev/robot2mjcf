@@ -21,6 +21,7 @@ from urdf_to_mjcf.postprocess.make_degrees import (
     update_rpy_attributes,
 )
 from urdf_to_mjcf.postprocess.move_mesh_scale import move_mesh_scale
+from urdf_to_mjcf.postprocess.remove_redundancies import remove_redundancies
 from urdf_to_mjcf.postprocess.sanitize_mesh_assets import sanitize_mesh_assets
 from urdf_to_mjcf.postprocess.split_obj_materials import (
     build_submesh_info,
@@ -28,7 +29,7 @@ from urdf_to_mjcf.postprocess.split_obj_materials import (
     remove_stale_generated_submeshes,
     split_obj_by_materials,
 )
-from urdf_to_mjcf.postprocess.update_mesh import update_mesh
+from urdf_to_mjcf.postprocess.update_mesh import merge_materials, update_mesh
 
 
 def write_text(path: Path, content: str) -> Path:
@@ -212,8 +213,8 @@ def test_process_obj_materials_registers_single_material_obj(tmp_path) -> None:
 
     materials = process_obj_materials(obj_path)
 
-    assert list(materials) == ["link1_metal_black"]
-    assert materials["link1_metal_black"].mjcf_rgba() == "0.01 0.01 0.01 1.0"
+    assert list(materials) == ["mtl_link1_metal_black"]
+    assert materials["mtl_link1_metal_black"].mjcf_rgba() == "0.01 0.01 0.01 1.0"
 
 
 def test_mesh_postprocess_preserves_obj_texture_materials(tmp_path) -> None:
@@ -264,18 +265,170 @@ def test_mesh_postprocess_preserves_obj_texture_materials(tmp_path) -> None:
 
     root = ET.parse(mjcf_path).getroot()
     geom = root.find(".//geom[@name='torso_base_link_visual']")
-    texture = root.find("./asset/texture[@name='torso_material_0_texture']")
-    material = root.find("./asset/material[@name='torso_material_0']")
+    texture = root.find("./asset/texture[@name='mtl_meshes_torso_torso_material_0_texture']")
+    material = root.find("./asset/material[@name='mtl_meshes_torso_torso_material_0']")
 
     assert geom is not None
-    assert geom.attrib["material"] == "torso_material_0"
+    assert geom.attrib["material"] == "mtl_meshes_torso_torso_material_0"
     assert texture is not None
     assert texture.attrib["file"] == "meshes/torso/material_0.png"
     assert material is not None
-    assert material.attrib["texture"] == "torso_material_0_texture"
+    assert material.attrib["texture"] == "mtl_meshes_torso_torso_material_0_texture"
     assert not obj_path.with_suffix(".mtl").exists()
     assert "mtllib" not in obj_path.read_text()
     assert "usemtl" not in obj_path.read_text()
+
+
+def test_split_obj_by_materials_scopes_materials_by_source_path(tmp_path) -> None:
+    arm_obj = write_text(
+        tmp_path / "meshes" / "visual" / "arm" / "link3.obj",
+        "\n".join(
+            [
+                "mtllib link3.mtl",
+                "usemtl material_0",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+            ]
+        ),
+    )
+    gripper_obj = write_text(
+        tmp_path / "meshes" / "visual" / "gripper" / "link3.obj",
+        "\n".join(
+            [
+                "mtllib link3.mtl",
+                "usemtl material_0",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "f 1 2 3",
+            ]
+        ),
+    )
+    write_text(arm_obj.with_suffix(".mtl"), "newmtl material_0\nKd 0.1 0.2 0.3\n")
+    write_text(gripper_obj.with_suffix(".mtl"), "newmtl material_0\nKd 0.7 0.8 0.9\n")
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        """
+        <mujoco>
+          <compiler meshdir='.' />
+          <asset>
+            <mesh name='arm_link3' file='meshes/visual/arm/link3.obj' />
+            <mesh name='gripper_link3' file='meshes/visual/gripper/link3.obj' />
+          </asset>
+          <worldbody>
+            <body name='body'>
+              <geom name='arm_visual' class='visual' type='mesh' mesh='arm_link3' />
+              <geom name='gripper_visual' class='visual' type='mesh' mesh='gripper_link3' />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    split_obj_by_materials(mjcf_path)
+
+    root = ET.parse(mjcf_path).getroot()
+    arm_material = "mtl_meshes_visual_arm_link3_material_0"
+    gripper_material = "mtl_meshes_visual_gripper_link3_material_0"
+    arm_material_elem = root.find(f"./asset/material[@name='{arm_material}']")
+    gripper_material_elem = root.find(f"./asset/material[@name='{gripper_material}']")
+
+    assert arm_material_elem is not None
+    assert gripper_material_elem is not None
+    assert arm_material_elem.attrib["rgba"] == "0.1 0.2 0.3 1.0"
+    assert gripper_material_elem.attrib["rgba"] == "0.7 0.8 0.9 1.0"
+    assert root.find(f".//geom[@name='arm_visual'][@material='{arm_material}']") is not None
+    assert root.find(f".//geom[@name='gripper_visual'][@material='{gripper_material}']") is not None
+
+
+def test_split_obj_by_materials_uses_split_time_submesh_material_mapping(tmp_path) -> None:
+    obj_path = write_text(
+        tmp_path / "meshes" / "part.obj",
+        "\n".join(
+            [
+                "mtllib part.mtl",
+                "v 0 0 0",
+                "v 1 0 0",
+                "v 0 1 0",
+                "v 0 0 1",
+                "usemtl red",
+                "f 1 2 3",
+                "usemtl blue",
+                "f 1 3 4",
+            ]
+        ),
+    )
+    write_text(
+        obj_path.with_suffix(".mtl"),
+        "\n".join(
+            [
+                "newmtl red",
+                "Kd 1 0 0",
+                "newmtl blue",
+                "Kd 0 0 1",
+            ]
+        ),
+    )
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        """
+        <mujoco>
+          <compiler meshdir='.' />
+          <asset>
+            <mesh name='part' file='meshes/part.obj' />
+          </asset>
+          <worldbody>
+            <body name='body'>
+              <geom name='part_visual' class='visual' type='mesh' mesh='part' />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    split_obj_by_materials(mjcf_path)
+
+    root = ET.parse(mjcf_path).getroot()
+    geom_materials = {geom.attrib["material"] for geom in root.findall(".//geom")}
+    assert geom_materials == {"mtl_meshes_part_red", "mtl_meshes_part_blue"}
+    assert root.find("./asset/material[@name='mtl_meshes_part_red']") is not None
+    assert root.find("./asset/material[@name='mtl_meshes_part_blue']") is not None
+
+
+def test_material_compactors_preserve_source_scoped_mtl_materials(tmp_path) -> None:
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        """
+        <mujoco>
+          <asset>
+            <material name='mtl_meshes_arm_link3_material_0' rgba='0.1 0.2 0.3 1' />
+            <material name='mtl_meshes_gripper_link3_material_0' rgba='0.1 0.2 0.3 1' />
+          </asset>
+          <worldbody>
+            <body name='body'>
+              <geom name='arm_visual' material='mtl_meshes_arm_link3_material_0' />
+              <geom name='gripper_visual' material='mtl_meshes_gripper_link3_material_0' />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    merge_materials(mjcf_path)
+    remove_redundancies(mjcf_path)
+
+    root = ET.parse(mjcf_path).getroot()
+    arm_geom = root.find(".//geom[@name='arm_visual']")
+    gripper_geom = root.find(".//geom[@name='gripper_visual']")
+
+    assert root.find("./asset/material[@name='mtl_meshes_arm_link3_material_0']") is not None
+    assert root.find("./asset/material[@name='mtl_meshes_gripper_link3_material_0']") is not None
+    assert arm_geom is not None
+    assert gripper_geom is not None
+    assert arm_geom.attrib["material"] == "mtl_meshes_arm_link3_material_0"
+    assert gripper_geom.attrib["material"] == "mtl_meshes_gripper_link3_material_0"
 
 
 def test_move_mesh_scale_bakes_reflected_visual_mesh_and_scales_collision_mesh(tmp_path) -> None:

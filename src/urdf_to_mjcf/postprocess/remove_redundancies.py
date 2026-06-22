@@ -5,6 +5,7 @@ import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from urdf_to_mjcf.core.materials import is_source_scoped_mtl_material
 from urdf_to_mjcf.core.utils import save_xml
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ def remove_redundant_materials(root: ET.Element) -> None:
     # Group materials by their RGBA values
     rgba_to_materials: dict[str, list[ET.Element]] = {}
     for material in materials:
+        if is_source_scoped_mtl_material(material.get("name")):
+            continue
         rgba = material.get("rgba")
         if rgba:
             rgba_to_materials.setdefault(rgba, []).append(material)
