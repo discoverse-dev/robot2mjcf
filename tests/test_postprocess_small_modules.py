@@ -6,6 +6,8 @@ import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import trimesh
+
 from urdf_to_mjcf.postprocess.base_joint import fix_base_joint
 from urdf_to_mjcf.postprocess.explicit_floor_contacts import add_explicit_floor_contacts
 from urdf_to_mjcf.postprocess.make_degrees import (
@@ -276,7 +278,7 @@ def test_mesh_postprocess_preserves_obj_texture_materials(tmp_path) -> None:
     assert "usemtl" not in obj_path.read_text()
 
 
-def test_move_mesh_scale_moves_negative_scale_to_mesh_asset(tmp_path) -> None:
+def test_move_mesh_scale_bakes_reflected_visual_mesh_and_scales_collision_mesh(tmp_path) -> None:
     mesh_path = write_text(
         tmp_path / "meshes" / "triangle.obj",
         "\n".join(
@@ -294,11 +296,13 @@ def test_move_mesh_scale_moves_negative_scale_to_mesh_asset(tmp_path) -> None:
         <mujoco>
           <compiler meshdir='.' />
           <asset>
-            <mesh name='triangle' file='{mesh_path.relative_to(tmp_path).as_posix()}' />
+            <mesh name='triangle_visual' file='{mesh_path.relative_to(tmp_path).as_posix()}' />
+            <mesh name='triangle_collision' file='{mesh_path.relative_to(tmp_path).as_posix()}' />
           </asset>
           <worldbody>
             <body name='body'>
-              <geom name='mirrored' type='mesh' mesh='triangle' scale='1 -1 1' />
+              <geom name='mirrored_visual' class='visual' type='mesh' mesh='triangle_visual' scale='1 -1 1' />
+              <geom name='mirrored_collision' class='collision' type='mesh' mesh='triangle_collision' scale='1 -1 1' />
             </body>
           </worldbody>
         </mujoco>
@@ -308,15 +312,28 @@ def test_move_mesh_scale_moves_negative_scale_to_mesh_asset(tmp_path) -> None:
     move_mesh_scale(mjcf_path)
 
     root = ET.parse(mjcf_path).getroot()
-    geom = root.find(".//geom[@name='mirrored']")
-    assert geom is not None
-    assert "scale" not in geom.attrib
+    visual_geom = root.find(".//geom[@name='mirrored_visual']")
+    collision_geom = root.find(".//geom[@name='mirrored_collision']")
+    assert visual_geom is not None
+    assert collision_geom is not None
+    assert "scale" not in visual_geom.attrib
+    assert "scale" not in collision_geom.attrib
 
-    mesh = root.find(f"./asset/mesh[@name='{geom.attrib['mesh']}']")
-    assert mesh is not None
-    assert mesh.attrib["scale"] == "1 -1 1"
-    assert mesh.attrib["file"] == "meshes/triangle.obj"
-    assert not (tmp_path / "meshes" / "triangle_scaled_1_m1_1.obj").exists()
+    visual_mesh = root.find(f"./asset/mesh[@name='{visual_geom.attrib['mesh']}']")
+    collision_mesh = root.find(f"./asset/mesh[@name='{collision_geom.attrib['mesh']}']")
+    assert visual_mesh is not None
+    assert collision_mesh is not None
+    assert "scale" not in visual_mesh.attrib
+    assert visual_mesh.attrib["file"] == "meshes/_generated/triangle_scaled_1_m1_1.obj"
+    assert collision_mesh.attrib["file"] == "meshes/triangle.obj"
+    assert collision_mesh.attrib["scale"] == "1 -1 1"
+
+    baked_mesh_path = tmp_path / visual_mesh.attrib["file"]
+    baked_mesh = trimesh.load(baked_mesh_path, force="mesh", process=False)
+    assert isinstance(baked_mesh, trimesh.Trimesh)
+    assert baked_mesh.vertices.tolist() == [[0.0, -0.0, 0.0], [1.0, -0.0, 0.0], [0.0, -1.0, 0.0]]
+    assert baked_mesh.face_normals[0].tolist() == [0.0, 0.0, 1.0]
+    assert list(baked_mesh_path.parent.glob("*.mtl")) == []
 
 
 def test_sanitize_mesh_assets_removes_missing_mesh_assets_and_geoms(tmp_path) -> None:
