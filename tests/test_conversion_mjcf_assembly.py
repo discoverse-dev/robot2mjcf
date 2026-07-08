@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from urdf_to_mjcf.conversion.mjcf_assembly import add_actuators, add_mimic_equality_constraints
+from urdf_to_mjcf.conversion.mjcf_assembly import add_actuators, add_joint_sensors, add_mimic_equality_constraints
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, JointMetadata, JointSensors
 
 
 def test_add_actuators_uses_metadata_and_preserves_metadata_order() -> None:
@@ -20,9 +20,11 @@ def test_add_actuators_uses_metadata_and_preserves_metadata_order() -> None:
         "joint_a": ActuatorMetadata(
             actuator_type="position",
             joint_class="arm",
+            ctrllimited=True,
             kp=50.0,
             kv=5.0,
             ctrlrange=[-1.0, 1.0],
+            forcelimited=True,
             forcerange=[-2.0, 2.0],
             gear=3.0,
         ),
@@ -37,12 +39,32 @@ def test_add_actuators_uses_metadata_and_preserves_metadata_order() -> None:
     assert [child.attrib["joint"] for child in children] == ["joint_a", "joint_b"]
     assert children[0].tag == "position"
     assert children[0].attrib["class"] == "arm"
+    assert children[0].attrib["ctrllimited"] == "true"
     assert children[0].attrib["kp"] == "50.0"
     assert children[0].attrib["kv"] == "5.0"
     assert children[0].attrib["ctrlrange"] == "-1.0 1.0"
+    assert children[0].attrib["forcelimited"] == "true"
     assert children[0].attrib["forcerange"] == "-2.0 2.0"
     assert children[0].attrib["gear"] == "3.0"
     assert children[1].tag == "motor"
+
+
+def test_add_joint_sensors_adds_requested_jointvel_sensors() -> None:
+    root = ET.fromstring("<mujoco />")
+    available_joints = [
+        ParsedJointParams(name="joint_a", type="hinge"),
+        ParsedJointParams(name="joint_b", type="slide"),
+    ]
+    joint_metadata = {
+        "joint_a": JointMetadata(sensors=JointSensors(jointvel=True)),
+        "joint_b": JointMetadata(),
+        "missing": JointMetadata(sensors=JointSensors(jointvel=True)),
+    }
+
+    add_joint_sensors(root, joint_metadata, available_joints)
+
+    sensors = root.findall("./sensor/jointvel")
+    assert [sensor.attrib for sensor in sensors] == [{"name": "vel_joint_a", "joint": "joint_a"}]
 
 
 def test_add_mimic_equality_constraints_adds_polycoef_constraints() -> None:

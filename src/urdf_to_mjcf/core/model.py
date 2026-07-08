@@ -7,6 +7,16 @@ from pydantic import BaseModel
 
 Angle = Literal["radian", "degree"]
 SiteType = Literal["sphere", "capsule", "ellipsoid", "cylinder", "box"]
+AxisName = Literal["x", "y", "z", "-x", "-y", "-z"]
+
+AXIS_VALUES: dict[str, tuple[float, float, float]] = {
+    "x": (1.0, 0.0, 0.0),
+    "y": (0.0, 1.0, 0.0),
+    "z": (0.0, 0.0, 1.0),
+    "-x": (-1.0, 0.0, 0.0),
+    "-y": (0.0, -1.0, 0.0),
+    "-z": (0.0, 0.0, -1.0),
+}
 
 
 class CollisionParams(BaseModel):
@@ -30,11 +40,17 @@ class dJoint(BaseModel):
 
 class dActuator(BaseModel):
     actuator_type: str | None = None
+    ctrllimited: bool | None = None
     kp: float | None = None
     kv: float | None = None
     gear: float | None = None
     ctrlrange: list[float] | None = None
+    forcelimited: bool | None = None
     forcerange: list[float] | None = None
+
+
+class JointSensors(BaseModel):
+    jointvel: bool = False
 
 
 class DefaultJointMetadata(BaseModel):
@@ -51,23 +67,28 @@ class DefaultJointMetadata(BaseModel):
 
 class JointMetadata(dJoint):
     actuator: dActuator | None = None
+    sensors: JointSensors | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "JointMetadata":
         """Create per-joint MJCF metadata from a plain dictionary."""
-        joint_data = {key: value for key, value in data.items() if key != "actuator"}
+        joint_data = {key: value for key, value in data.items() if key not in {"actuator", "sensors"}}
         actuator_data = data.get("actuator")
+        sensors_data = data.get("sensors")
         actuator = dActuator(**actuator_data) if actuator_data is not None else None
-        return cls(**joint_data, actuator=actuator)
+        sensors = JointSensors(**sensors_data) if sensors_data is not None else None
+        return cls(**joint_data, actuator=actuator, sensors=sensors)
 
 
 class ActuatorMetadata(BaseModel):
     joint_class: str | None = None
     actuator_type: str | None = None
+    ctrllimited: bool | None = None
     kp: float | None = None
     kv: float | None = None
     gear: float | None = None
     ctrlrange: list[float] | None = None
+    forcelimited: bool | None = None
     forcerange: list[float] | None = None
 
     @classmethod
@@ -127,12 +148,30 @@ class ExplicitFloorContacts(BaseModel):
 
 
 class ExtraJoint(BaseModel):
-    body_name: str
     name: str
     type: Literal["slide", "hinge"]
-    axis: list[float]
-    joint_class: str | None = None
+    axis: AxisName
     range: list[float] | None = None
+
+    def axis_values(self) -> tuple[float, float, float]:
+        return AXIS_VALUES[self.axis]
+
+
+class ExtraJointGroup(BaseModel):
+    body: str
+    joints: list[ExtraJoint]
+
+
+class JointData(BaseModel):
+    extra_joints: list[ExtraJointGroup] = []
+    joints: dict[str, JointMetadata] = {}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JointData":
+        """Create joint data from a plain dictionary."""
+        joints = {name: JointMetadata.from_dict(metadata) for name, metadata in data.get("joints", {}).items()}
+        extra_joints = [ExtraJointGroup(**group) for group in data.get("extra_joints", [])]
+        return cls(extra_joints=extra_joints, joints=joints)
 
 
 class WeldConstraint(BaseModel):
@@ -194,7 +233,6 @@ class ConversionMetadata(BaseModel):
     touch_sensors: list[TouchSensor] = []
     collision_geometries: list[CollisionGeometry] | None = None
     explicit_contacts: ExplicitFloorContacts | None = None
-    extra_joints: list[ExtraJoint] = []
     weld_constraints: list[WeldConstraint] = []
     remove_redundancies: bool = True
     maxhullvert: int | None = None

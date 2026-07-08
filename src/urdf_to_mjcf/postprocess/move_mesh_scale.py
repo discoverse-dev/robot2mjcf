@@ -73,9 +73,7 @@ def _mesh_root(mjcf_path: Path, root: ET.Element) -> Path:
 
 def _strip_obj_material_directives(obj_path: Path) -> None:
     lines = obj_path.read_text().splitlines(keepends=True)
-    stripped_lines = [
-        line for line in lines if not line.lstrip().startswith(("mtllib ", "usemtl "))
-    ]
+    stripped_lines = [line for line in lines if not line.lstrip().startswith(("mtllib ", "usemtl "))]
     if len(stripped_lines) != len(lines):
         obj_path.write_text("".join(stripped_lines))
 
@@ -190,7 +188,9 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
             original_mesh_elem, mesh_file = mesh_map[mesh_name]
             base_scale = _parse_scale(original_mesh_elem.attrib.get("scale", "1 1 1"))
             if base_scale is None:
-                logger.warning("Invalid mesh asset scale '%s' on mesh '%s'", original_mesh_elem.attrib["scale"], mesh_name)
+                logger.warning(
+                    "Invalid mesh asset scale '%s' on mesh '%s'", original_mesh_elem.attrib["scale"], mesh_name
+                )
                 continue
             effective_scale = _combine_scale(base_scale, geom_scale)
             normalized_scale = _format_scale(effective_scale)

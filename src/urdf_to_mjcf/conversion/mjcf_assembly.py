@@ -10,13 +10,17 @@ from pathlib import Path
 
 from urdf_to_mjcf.core.geometry import ParsedJointParams
 from urdf_to_mjcf.core.materials import Material
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, JointMetadata
 
 logger = logging.getLogger(__name__)
 
 ROBOT_CLASS = "robot"
 
 MimicConstraint = tuple[str, str, float, float]
+
+
+def mjcf_bool(value: bool) -> str:
+    return "true" if value else "false"
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +84,8 @@ def add_default(
                 continue
 
             actuator_attrib = {}
+            if c_actuator.ctrllimited is not None:
+                actuator_attrib["ctrllimited"] = mjcf_bool(c_actuator.ctrllimited)
             if c_actuator.kp is not None:
                 actuator_attrib["kp"] = str(c_actuator.kp)
             if c_actuator.kv is not None:
@@ -88,6 +94,8 @@ def add_default(
                 actuator_attrib["gear"] = str(c_actuator.gear)
             if c_actuator.ctrlrange is not None and len(c_actuator.ctrlrange) == 2:
                 actuator_attrib["ctrlrange"] = f"{c_actuator.ctrlrange[0]} {c_actuator.ctrlrange[1]}"
+            if c_actuator.forcelimited is not None:
+                actuator_attrib["forcelimited"] = mjcf_bool(c_actuator.forcelimited)
             if c_actuator.forcerange is not None:
                 actuator_attrib["forcerange"] = f"{c_actuator.forcerange[0]} {c_actuator.forcerange[1]}"
 
@@ -337,12 +345,16 @@ def add_actuators(
         if metadata.joint_class is not None:
             attrib["class"] = str(metadata.joint_class)
             logger.info("Joint %s assigned to class: %s", actuator_joint.name, metadata.joint_class)
+        if metadata.ctrllimited is not None:
+            attrib["ctrllimited"] = mjcf_bool(metadata.ctrllimited)
         if metadata.kp is not None:
             attrib["kp"] = str(metadata.kp)
         if metadata.kv is not None:
             attrib["kv"] = str(metadata.kv)
         if metadata.ctrlrange is not None:
             attrib["ctrlrange"] = f"{metadata.ctrlrange[0]} {metadata.ctrlrange[1]}"
+        if metadata.forcelimited is not None:
+            attrib["forcelimited"] = mjcf_bool(metadata.forcelimited)
         if metadata.forcerange is not None:
             attrib["forcerange"] = f"{metadata.forcerange[0]} {metadata.forcerange[1]}"
         if metadata.gear is not None:
@@ -358,6 +370,28 @@ def add_actuators(
         actuator_elem.remove(child)
     for child in actuator_children:
         actuator_elem.append(child)
+
+
+def add_joint_sensors(
+    root: ET.Element,
+    joint_metadata: Mapping[str, JointMetadata],
+    available_joints: Sequence[ParsedJointParams],
+) -> None:
+    """Add joint sensors described by joint metadata."""
+    available_joint_names = {joint.name for joint in available_joints}
+    sensor_joints = [
+        joint_name
+        for joint_name, metadata in joint_metadata.items()
+        if metadata.sensors is not None and metadata.sensors.jointvel and joint_name in available_joint_names
+    ]
+    if not sensor_joints:
+        return
+
+    sensor_elem = root.find("sensor")
+    if sensor_elem is None:
+        sensor_elem = ET.SubElement(root, "sensor")
+    for joint_name in sensor_joints:
+        ET.SubElement(sensor_elem, "jointvel", attrib={"name": f"vel_{joint_name}", "joint": joint_name})
 
 
 def add_mimic_equality_constraints(root: ET.Element, mimic_constraints: Sequence[MimicConstraint]) -> None:

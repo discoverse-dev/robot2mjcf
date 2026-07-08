@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 from urdf_to_mjcf.conversion.pipeline import ConversionContext, add_extra_joints, assemble_robot_scene
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, ExtraJoint
+from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, ExtraJoint, ExtraJointGroup
 
 
 def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_path, monkeypatch) -> None:
@@ -21,6 +21,7 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
         root_link_name="base",
         actuator_metadata={"joint1": ActuatorMetadata(actuator_type="motor")},
         joint_metadata={},
+        extra_joints=[],
         mimic_constraints=[("joint0", "joint1", 1.0, 0.0)],
         metadata=ConversionMetadata(),
     )
@@ -96,29 +97,14 @@ def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
     robot_body = ET.fromstring('<body name="base"><body name="arm" /></body>')
     actuator_joints: list[ParsedJointParams] = []
     extra_joints = [
-        ExtraJoint(
-            body_name="base",
-            name="base_x",
-            type="slide",
-            axis=[1, 0, 0],
-            joint_class="base_slide",
-            range=[-1, 1],
-        ),
-        ExtraJoint(
-            body_name="base",
-            name="base_y",
-            type="slide",
-            axis=[0, 1, 0],
-            joint_class="base_slide",
-            range=[-2, 2],
-        ),
-        ExtraJoint(
-            body_name="base",
-            name="base_yaw",
-            type="hinge",
-            axis=[0, 0, 1],
-            joint_class="base_yaw",
-        ),
+        ExtraJointGroup(
+            body="base",
+            joints=[
+                ExtraJoint(name="base_x", type="slide", axis="x", range=[-1, 1]),
+                ExtraJoint(name="base_y", type="slide", axis="y", range=[-2, 2]),
+                ExtraJoint(name="base_yaw", type="hinge", axis="z"),
+            ],
+        )
     ]
 
     add_extra_joints(robot_body, actuator_joints, extra_joints)
@@ -129,7 +115,6 @@ def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
         "name": "base_x",
         "type": "slide",
         "axis": "1.0 0.0 0.0",
-        "class": "base_slide",
         "range": "-1.0 1.0",
     }
     inertial = robot_body.find("inertial")

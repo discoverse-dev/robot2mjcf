@@ -15,6 +15,7 @@ from urdf_to_mjcf.core.model import (
     ActuatorMetadata,
     ConversionMetadata,
     DefaultJointMetadata,
+    JointData,
     JointMetadata,
     dActuator,
     dJoint,
@@ -116,7 +117,12 @@ def test_build_conversion_context_derives_actuators_from_joint_metadata() -> Non
     joint_metadata = {
         "joint1": JointMetadata(
             damping=0.5,
-            actuator=dActuator(actuator_type="position", kp=10.0),
+            actuator=dActuator(
+                actuator_type="position",
+                ctrllimited=True,
+                kp=10.0,
+                forcelimited=True,
+            ),
         ),
         "joint2": JointMetadata(actuator=dActuator()),
     }
@@ -127,13 +133,15 @@ def test_build_conversion_context_derives_actuators_from_joint_metadata() -> Non
         default_metadata=default_metadata,
         actuator_metadata=None,
         collision_only=False,
-        joint_metadata=joint_metadata,
+        joint_data=JointData(joints=joint_metadata),
     )
 
-    assert context.joint_metadata is joint_metadata
+    assert context.joint_metadata == joint_metadata
     assert list(context.actuator_metadata) == ["joint1"]
     assert context.actuator_metadata["joint1"].actuator_type == "position"
+    assert context.actuator_metadata["joint1"].ctrllimited is True
     assert context.actuator_metadata["joint1"].kp == 10.0
+    assert context.actuator_metadata["joint1"].forcelimited is True
     assert context.mjcf_root.find(".//default[@class='arm']") is None
 
 

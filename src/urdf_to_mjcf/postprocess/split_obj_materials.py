@@ -79,9 +79,7 @@ def strip_obj_material_directives(obj_file: Path) -> None:
         return
 
     lines = obj_file.read_text().splitlines(keepends=True)
-    stripped_lines = [
-        line for line in lines if not line.lstrip().startswith(("mtllib ", "usemtl "))
-    ]
+    stripped_lines = [line for line in lines if not line.lstrip().startswith(("mtllib ", "usemtl "))]
     if len(stripped_lines) != len(lines):
         obj_file.write_text("".join(stripped_lines))
 
