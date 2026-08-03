@@ -52,6 +52,8 @@ urdf-to-mjcf-urdfformat = "urdf_to_mjcf.urdf_format:main"
 
 [dependency-groups]
 dev = [
+    # NumPy 2.5 stubs require Python 3.12 syntax, while mypy targets Python 3.10.
+    "numpy<2.5",
     "pytest>=8",
     "pytest-cov",
     "ruff",
