@@ -489,6 +489,36 @@ def test_move_mesh_scale_bakes_reflected_visual_mesh_and_scales_collision_mesh(t
     assert list(baked_mesh_path.parent.glob("*.mtl")) == []
 
 
+def test_move_mesh_scale_renames_all_shared_extension_mesh_references(tmp_path) -> None:
+    mesh_path = write_text(
+        tmp_path / "meshes" / "triangle.obj",
+        "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n",
+    )
+    mjcf_path = write_text(
+        tmp_path / "model.xml",
+        f"""
+        <mujoco>
+          <compiler meshdir='.' />
+          <asset>
+            <mesh name='triangle.obj' file='{mesh_path.relative_to(tmp_path).as_posix()}' />
+          </asset>
+          <worldbody>
+            <body name='body'>
+              <geom name='first' type='mesh' mesh='triangle.obj' />
+              <geom name='second' type='mesh' mesh='triangle.obj' />
+            </body>
+          </worldbody>
+        </mujoco>
+        """.strip(),
+    )
+
+    move_mesh_scale(mjcf_path)
+
+    root = ET.parse(mjcf_path).getroot()
+    assert root.find("./asset/mesh[@name='triangle']") is not None
+    assert [geom.attrib["mesh"] for geom in root.findall(".//geom")] == ["triangle", "triangle"]
+
+
 def test_sanitize_mesh_assets_removes_missing_mesh_assets_and_geoms(tmp_path) -> None:
     write_text(tmp_path / "meshes" / "existing.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     mjcf_path = write_text(

@@ -83,16 +83,7 @@ def create_actuator_metadata_from_joint_metadata(
         actuator = metadata.actuator
         if actuator is None or actuator.actuator_type is None:
             continue
-        actuator_metadata[name] = ActuatorMetadata(
-            actuator_type=actuator.actuator_type,
-            ctrllimited=actuator.ctrllimited,
-            kp=actuator.kp,
-            kv=actuator.kv,
-            gear=actuator.gear,
-            ctrlrange=actuator.ctrlrange,
-            forcelimited=actuator.forcelimited,
-            forcerange=actuator.forcerange,
-        )
+        actuator_metadata[name] = ActuatorMetadata(**dict(actuator))
     return actuator_metadata
 
 
@@ -171,17 +162,6 @@ class SceneAssemblyResult:
     mesh_file_paths: dict[str, Path]
 
 
-def find_body(root: ET.Element, name: str) -> ET.Element | None:
-    """Find a body by name in a body subtree."""
-    if root.attrib.get("name") == name:
-        return root
-    for child in root.findall("body"):
-        match = find_body(child, name)
-        if match is not None:
-            return match
-    return None
-
-
 def add_extra_joints(
     robot_body: ET.Element,
     actuator_joints: list[ParsedJointParams],
@@ -190,10 +170,11 @@ def add_extra_joints(
 ) -> None:
     """Inject MJCF-only joints into generated bodies."""
     insert_indices: dict[str, int] = {}
-    touched_bodies: set[str] = set()
+    bodies = {body.attrib["name"]: body for body in robot_body.iter("body") if "name" in body.attrib}
+    touched_bodies: dict[str, ET.Element] = {}
 
     for group in extra_joints:
-        body = find_body(robot_body, group.body)
+        body = bodies.get(group.body)
         if body is None:
             raise ValueError(f"Extra joint body not found: {group.body}")
 
@@ -212,12 +193,11 @@ def add_extra_joints(
             insert_at = insert_indices.get(group.body, 0)
             body.insert(insert_at, ET.Element("joint", attrib=attrib))
             insert_indices[group.body] = insert_at + 1
-            touched_bodies.add(group.body)
+            touched_bodies[group.body] = body
             actuator_joints.append(ParsedJointParams(name=joint.name, type=joint.type, lower=lower, upper=upper))
 
-    for body_name in touched_bodies:
-        body = find_body(robot_body, body_name)
-        if body is not None and body.find("inertial") is None:
+    for body_name, body in touched_bodies.items():
+        if body.find("inertial") is None:
             insert_at = insert_indices[body_name]
             body.insert(insert_at, minimal_inertial())
 

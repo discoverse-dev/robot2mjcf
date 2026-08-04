@@ -49,9 +49,12 @@ urdf-to-mjcf <urdf_path> [options]
 
 #### Optional Arguments
 - `-o, --output`: Output MJCF file path (default: `output_mjcf/robot.xml` under the URDF directory)
-- `-m, --metadata`: Path to JSON file containing conversion metadata (joint parameters and sensor configurations)
+- `-m, --metadata`: Advanced conversion metadata JSON (floor, cameras, collision processing, etc.)
+- `--freejoint, --no-freejoint`: Override whether the root body receives a MuJoCo free joint
+- `--add-floor, --no-add-floor`: Override whether the default floor is generated
 - `-dm, --default-metadata`: Default metadata JSON files, multiple files can be specified, later files override earlier settings
 - `-am, --actuator-metadata`: Actuator metadata JSON files, multiple files can be specified, later files override earlier settings
+- `-jd, --joint-data`: Unified joint-data JSON files for grouped MJCF-only joints, per-joint dynamics, actuators, and joint-velocity sensors; files are merged in order
 - `-a, --appendix`: Appendix XML files, multiple files can be specified and applied in order
 - `--collision-only`: Use collision geometry only without visual appearance for visual representation
 - `-ct, --collision-type`: Collision mesh processing mode. Choices:
@@ -64,10 +67,13 @@ urdf-to-mjcf <urdf_path> [options]
 - `--skip-mesh-postprocess`: Skip heavy mesh-file post-processing and keep only lightweight XML-side postprocess steps
 
 #### Metadata Files Description
-- **metadata**: Main conversion configuration file, contains height offset, angle units, whether to add floor, etc.
+- **metadata**: Main conversion configuration file, containing height offset, angle units, floor, collision, and scene settings
+- **joint-data**: Preferred per-joint configuration, combining grouped MJCF-only joints with dynamics, actuator, and joint-velocity sensor settings
 - **default-metadata**: Default joint parameter configuration, defines default properties for joints
 - **actuator-metadata**: Actuator configuration, defines actuator types and parameters for each joint
 - **appendix**: Additional XML content that will be directly added to the generated MJCF file
+
+See the [Metadata Reference](./docs/en/METADATA_REFERENCE.md) for the joint-data schema, merge rules, and precedence between the unified and legacy inputs.
 
 ### Usage Examples
 
@@ -82,6 +88,13 @@ urdf-to-mjcf piper.urdf \
   -a metadata/appendix.xml
 # View the generated model
 python -m mujoco.viewer --mjcf=mjcf/piper.xml
+
+# unified joint data and a fixed base without the generated floor
+urdf-to-mjcf robot.urdf \
+  -o mjcf/robot.xml \
+  -jd metadata/base_joints.json metadata/arm_joints.json \
+  --no-freejoint \
+  --no-add-floor
 
 # realman-rm65 robotic arm
 cd examples/realman-rm65

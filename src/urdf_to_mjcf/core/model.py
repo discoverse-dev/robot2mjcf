@@ -60,9 +60,7 @@ class DefaultJointMetadata(BaseModel):
     @classmethod
     def from_dict(cls, data: dict) -> "DefaultJointMetadata":
         """Create DefaultJointMetadata from a plain dictionary."""
-        joint = dJoint(**data["joint"])
-        actuator = dActuator(**data["actuator"])
-        return cls(joint=joint, actuator=actuator)
+        return cls(**data)
 
 
 class JointMetadata(dJoint):
@@ -72,24 +70,11 @@ class JointMetadata(dJoint):
     @classmethod
     def from_dict(cls, data: dict) -> "JointMetadata":
         """Create per-joint MJCF metadata from a plain dictionary."""
-        joint_data = {key: value for key, value in data.items() if key not in {"actuator", "sensors"}}
-        actuator_data = data.get("actuator")
-        sensors_data = data.get("sensors")
-        actuator = dActuator(**actuator_data) if actuator_data is not None else None
-        sensors = JointSensors(**sensors_data) if sensors_data is not None else None
-        return cls(**joint_data, actuator=actuator, sensors=sensors)
+        return cls(**data)
 
 
-class ActuatorMetadata(BaseModel):
+class ActuatorMetadata(dActuator):
     joint_class: str | None = None
-    actuator_type: str | None = None
-    ctrllimited: bool | None = None
-    kp: float | None = None
-    kv: float | None = None
-    gear: float | None = None
-    ctrlrange: list[float] | None = None
-    forcelimited: bool | None = None
-    forcerange: list[float] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "ActuatorMetadata":
@@ -169,9 +154,7 @@ class JointData(BaseModel):
     @classmethod
     def from_dict(cls, data: dict) -> "JointData":
         """Create joint data from a plain dictionary."""
-        joints = {name: JointMetadata.from_dict(metadata) for name, metadata in data.get("joints", {}).items()}
-        extra_joints = [ExtraJointGroup(**group) for group in data.get("extra_joints", [])]
-        return cls(extra_joints=extra_joints, joints=joints)
+        return cls(**data)
 
 
 class WeldConstraint(BaseModel):
@@ -209,8 +192,6 @@ class CollisionGeometry(BaseModel):
 class ConversionMetadata(BaseModel):
     freejoint: bool = True
     collision_params: CollisionParams = CollisionParams()
-    # joint_name_to_metadata: dict[str, ActuatorMetadata] | None = None
-    # actuator_type_to_metadata: dict[str, JointMetadata] | None = None
     imus: list[ImuSensor] = []
     cameras: list[CameraSensor] = [
         CameraSensor(

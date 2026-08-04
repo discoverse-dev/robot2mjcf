@@ -8,13 +8,11 @@ from pathlib import Path
 import pytest
 
 from urdf_to_mjcf.cli.convert import (
-    apply_metadata_overrides,
     load_actuator_metadata_files,
     load_default_metadata_files,
     load_joint_data_files,
     normalize_appendix_files,
 )
-from urdf_to_mjcf.core.model import ConversionMetadata
 
 
 def write_json(path: Path, payload: object) -> Path:
@@ -139,15 +137,6 @@ def test_metadata_loaders_return_none_for_empty_inputs() -> None:
     assert load_actuator_metadata_files([]) is None
     assert load_joint_data_files(None) is None
     assert load_joint_data_files([]) is None
-
-
-def test_apply_metadata_overrides_updates_common_cli_fields() -> None:
-    metadata = ConversionMetadata()
-
-    overridden = apply_metadata_overrides(metadata, freejoint=False, add_floor=False)
-
-    assert overridden.freejoint is False
-    assert overridden.add_floor is False
 
 
 def test_load_default_metadata_files_exits_on_invalid_json(tmp_path) -> None:

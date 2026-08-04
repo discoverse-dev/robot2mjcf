@@ -62,14 +62,6 @@ def sanitize_mesh_assets(mjcf_path: str | Path) -> None:
     for mesh in missing_mesh_elems:
         asset.remove(mesh)
 
-    remaining_missing = []
-    for mesh in asset.findall("mesh"):
-        mesh_file = mesh.attrib.get("file")
-        if mesh_file and not _mesh_path(mjcf_path, meshdir, mesh_file).exists():
-            remaining_missing.append(mesh_file)
-    if remaining_missing:
-        raise FileNotFoundError(f"Missing MJCF mesh assets after sanitization: {sorted(remaining_missing)}")
-
     logger.warning(
         "Removed %d missing mesh asset(s) and %d geom(s) from %s",
         len(missing_mesh_elems),

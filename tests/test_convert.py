@@ -243,6 +243,38 @@ def test_convert_missing_urdf(tmp_dir: Path) -> None:
         convert_urdf_to_mjcf(urdf_path=tmp_dir / "nonexistent.urdf")
 
 
+def test_convert_cli_overrides_disable_freejoint_and_floor(tmp_dir: Path) -> None:
+    urdf_path = tmp_dir / "description" / "robot.urdf"
+    urdf_path.parent.mkdir()
+    urdf_path.write_text(
+        """
+        <robot name="fixed">
+          <link name="base_link">
+            <inertial>
+              <mass value="1" />
+              <inertia ixx="1" ixy="0" ixz="0" iyy="1" iyz="0" izz="1" />
+            </inertial>
+            <visual><geometry><box size="1 1 1" /></geometry></visual>
+            <collision><geometry><box size="1 1 1" /></geometry></collision>
+          </link>
+        </robot>
+        """.strip()
+    )
+    out_path = tmp_dir / "mjcf" / "robot.xml"
+
+    convert_urdf_to_mjcf(
+        urdf_path,
+        out_path,
+        freejoint=False,
+        add_floor=False,
+        run_mesh_postprocess=False,
+    )
+
+    root = ET.parse(out_path).getroot()
+    assert root.find(".//freejoint") is None
+    assert root.find(".//geom[@name='floor']") is None
+
+
 def test_default_output_path() -> None:
     """When no output path is given, output goes to output_mjcf/robot.xml."""
     robot_dir = EXAMPLES_DIR / "agilex-piper"

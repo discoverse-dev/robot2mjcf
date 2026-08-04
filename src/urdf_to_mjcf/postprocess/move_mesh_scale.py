@@ -11,7 +11,6 @@ import argparse
 import logging
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, Tuple
 
 import trimesh
 
@@ -143,19 +142,20 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
     mesh_root = _mesh_root(mjcf_path, root)
 
     # Build a mapping of mesh name -> mesh element and file path
-    mesh_map: Dict[str, Tuple[ET.Element, str]] = {}
+    mesh_map: dict[str, tuple[ET.Element, str]] = {}
     for mesh_elem in asset.findall("mesh"):
         mesh_name = mesh_elem.attrib.get("name")
         mesh_file = mesh_elem.attrib.get("file")
         if mesh_name and mesh_file:
             mesh_map[mesh_name] = (mesh_elem, mesh_file)
+    used_mesh_names = set(mesh_map)
 
     # Track mesh file + scale combinations to create unique mesh names
     # Key: (original_mesh_name, normalized_scale_str, strategy), Value: new_mesh_name
-    scale_mesh_map: Dict[Tuple[str, str, str], str] = {}
+    scale_mesh_map: dict[tuple[str, str, str], str] = {}
 
     # Counter for generating unique mesh names
-    mesh_counters: Dict[str, int] = {}
+    mesh_counters: dict[str, int] = {}
 
     # Find all geoms with scale attributes in worldbody
     worldbody = root.find("worldbody")
@@ -163,113 +163,102 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
         logger.warning("No <worldbody> section found in MJCF file")
         return
 
-    # Process all geom elements recursively
-    def process_geoms(element: ET.Element) -> None:
-        """Recursively process geom elements in the tree."""
-        for geom in element.findall(".//geom"):
-            geom_type = geom.attrib.get("type")
-            mesh_name = geom.attrib.get("mesh")
-            scale_str = geom.attrib.get("scale")
+    for geom in worldbody.iter("geom"):
+        geom_type = geom.attrib.get("type")
+        mesh_name = geom.attrib.get("mesh")
+        scale_str = geom.attrib.get("scale")
 
-            # Only process mesh geoms with scale attribute
-            if geom_type != "mesh" or not mesh_name or not scale_str:
-                continue
+        # Only process mesh geoms with scale attribute
+        if geom_type != "mesh" or not mesh_name or not scale_str:
+            continue
 
-            # Check if this mesh exists in assets
-            if mesh_name not in mesh_map:
-                logger.warning(f"Geom references non-existent mesh: {mesh_name}")
-                continue
+        # Check if this mesh exists in assets
+        if mesh_name not in mesh_map:
+            logger.warning(f"Geom references non-existent mesh: {mesh_name}")
+            continue
 
-            geom_scale = _parse_scale(scale_str)
-            if geom_scale is None:
-                logger.warning("Invalid mesh scale '%s' on geom '%s'", scale_str, geom.attrib.get("name", "unnamed"))
-                continue
+        geom_scale = _parse_scale(scale_str)
+        if geom_scale is None:
+            logger.warning("Invalid mesh scale '%s' on geom '%s'", scale_str, geom.attrib.get("name", "unnamed"))
+            continue
 
-            original_mesh_elem, mesh_file = mesh_map[mesh_name]
-            base_scale = _parse_scale(original_mesh_elem.attrib.get("scale", "1 1 1"))
-            if base_scale is None:
-                logger.warning(
-                    "Invalid mesh asset scale '%s' on mesh '%s'", original_mesh_elem.attrib["scale"], mesh_name
-                )
-                continue
-            effective_scale = _combine_scale(base_scale, geom_scale)
-            normalized_scale = _format_scale(effective_scale)
-            bake_visual_reflection = geom.attrib.get("class") != "collision" and _is_reflection_scale(effective_scale)
-            scale_strategy = "baked_visual_reflection" if bake_visual_reflection else "mesh_scale"
+        original_mesh_elem, mesh_file = mesh_map[mesh_name]
+        base_scale = _parse_scale(original_mesh_elem.attrib.get("scale", "1 1 1"))
+        if base_scale is None:
+            logger.warning("Invalid mesh asset scale '%s' on mesh '%s'", original_mesh_elem.attrib["scale"], mesh_name)
+            continue
+        effective_scale = _combine_scale(base_scale, geom_scale)
+        normalized_scale = _format_scale(effective_scale)
+        bake_visual_reflection = geom.attrib.get("class") != "collision" and _is_reflection_scale(effective_scale)
+        scale_strategy = "baked_visual_reflection" if bake_visual_reflection else "mesh_scale"
 
-            # Create a key for this mesh+scale combination
-            key = (mesh_name, normalized_scale, scale_strategy)
+        # Create a key for this mesh+scale combination
+        key = (mesh_name, normalized_scale, scale_strategy)
 
-            # Check if we already created a mesh for this combination
-            if key in scale_mesh_map:
-                # Reuse existing mesh name
-                new_mesh_name = scale_mesh_map[key]
+        # Check if we already created a mesh for this combination
+        new_mesh_name = scale_mesh_map.get(key)
+        if new_mesh_name is None:
+            # Check if the original mesh already has this scale
+            original_scale = original_mesh_elem.attrib.get("scale")
+            if not bake_visual_reflection and original_scale == normalized_scale:
+                # The mesh already has this scale, just remove from geom
+                new_mesh_name = mesh_name
+            elif not bake_visual_reflection and _is_identity_scale(effective_scale) and original_scale is None:
+                new_mesh_name = mesh_name
             else:
-                # Check if the original mesh already has this scale
-                original_scale = original_mesh_elem.attrib.get("scale")
-                if not bake_visual_reflection and original_scale == normalized_scale:
-                    # The mesh already has this scale, just remove from geom
-                    new_mesh_name = mesh_name
-                elif not bake_visual_reflection and _is_identity_scale(effective_scale) and original_scale is None:
-                    new_mesh_name = mesh_name
-                else:
-                    # Need to create a new mesh entry
-                    # Generate unique name
-                    base_name = mesh_name.rsplit(".", 1)[0]  # Remove extension if present
+                # Need to create a new mesh entry
+                # Generate unique name
+                base_name = mesh_name.rsplit(".", 1)[0]  # Remove extension if present
 
-                    # Initialize counter if not exists
-                    if base_name not in mesh_counters:
-                        mesh_counters[base_name] = 1
+                counter = mesh_counters.get(base_name, 1)
+                while True:
+                    new_mesh_name = f"{base_name}_{counter}"
+                    if new_mesh_name not in used_mesh_names:
+                        break
+                    counter += 1
 
-                    # Find a unique name
-                    counter = mesh_counters[base_name]
-                    while True:
-                        new_mesh_name = f"{base_name}_{counter}"
-                        # Check if this name already exists in mesh_map or scale_mesh_map
-                        if new_mesh_name not in mesh_map and new_mesh_name not in [v for v in scale_mesh_map.values()]:
-                            break
-                        counter += 1
+                mesh_counters[base_name] = counter + 1
 
-                    mesh_counters[base_name] = counter + 1
+                mesh_attrib = {"name": new_mesh_name, "file": mesh_file}
+                if bake_visual_reflection:
+                    mesh_attrib["file"] = _baked_mesh_relative_path(mesh_file, effective_scale, mesh_root)
+                elif not _is_identity_scale(effective_scale):
+                    mesh_attrib["scale"] = normalized_scale
 
-                    mesh_attrib = {"name": new_mesh_name, "file": mesh_file}
-                    if bake_visual_reflection:
-                        mesh_attrib["file"] = _baked_mesh_relative_path(mesh_file, effective_scale, mesh_root)
-                    elif not _is_identity_scale(effective_scale):
-                        mesh_attrib["scale"] = normalized_scale
+                # Create new mesh element in asset section
+                new_mesh_elem = ET.Element("mesh", attrib=mesh_attrib)
 
-                    # Create new mesh element in asset section
-                    new_mesh_elem = ET.Element("mesh", attrib=mesh_attrib)
+                # Insert after the original mesh
+                mesh_index = list(asset).index(original_mesh_elem)
+                asset.insert(mesh_index + 1, new_mesh_elem)
 
-                    # Insert after the original mesh
-                    mesh_index = list(asset).index(original_mesh_elem)
-                    asset.insert(mesh_index + 1, new_mesh_elem)
+                # Update tracking
+                mesh_map[new_mesh_name] = (new_mesh_elem, mesh_attrib["file"])
+                used_mesh_names.add(new_mesh_name)
+                scale_mesh_map[key] = new_mesh_name
 
-                    # Update tracking
-                    mesh_map[new_mesh_name] = (new_mesh_elem, mesh_attrib["file"])
-                    scale_mesh_map[key] = new_mesh_name
+                logger.info(
+                    "Created new mesh '%s' with scale '%s' for file '%s'",
+                    new_mesh_name,
+                    normalized_scale,
+                    mesh_file,
+                )
 
-                    logger.info(
-                        "Created new mesh '%s' with scale '%s' for file '%s'",
-                        new_mesh_name,
-                        normalized_scale,
-                        mesh_file,
-                    )
-
-            # Update geom to reference the new mesh and remove scale
-            geom.attrib["mesh"] = new_mesh_name
-            del geom.attrib["scale"]
-
-    # Process all geoms in worldbody
-    process_geoms(worldbody)
+        # Update geom to reference the new mesh and remove scale
+        geom.attrib["mesh"] = new_mesh_name
+        del geom.attrib["scale"]
 
     # Also handle geoms that might have no scale (to normalize naming)
     # Now handle geoms without scale that reference meshes with extensions in name
-    for geom in worldbody.findall(".//geom"):
+    renamed_meshes: dict[str, str] = {}
+    for geom in worldbody.iter("geom"):
         geom_type = geom.attrib.get("type")
         mesh_name = geom.attrib.get("mesh")
 
         if geom_type == "mesh" and mesh_name and "scale" not in geom.attrib:
+            if mesh_name in renamed_meshes:
+                geom.attrib["mesh"] = renamed_meshes[mesh_name]
+                continue
             # Check if mesh name still has extension
             if mesh_name in mesh_map:
                 original_mesh_elem, _mesh_file = mesh_map[mesh_name]
@@ -281,6 +270,7 @@ def move_mesh_scale(mjcf_path: str | Path) -> None:
                         # Rename the mesh to remove extension
                         original_mesh_elem.attrib["name"] = base_name
                         mesh_map[base_name] = mesh_map.pop(mesh_name)
+                        renamed_meshes[mesh_name] = base_name
                         geom.attrib["mesh"] = base_name
                         logger.info(f"Normalized mesh name from '{mesh_name}' to '{base_name}'")
 

@@ -45,6 +45,15 @@ urdf-to-mjcf/
 4. **Output** (`conversion/output.py`): Adjust robot height, save initial MJCF, dispatch post-processing.
 5. **Post-processing** (`postprocess/`): Light, mesh conversion (DAE/GLB→OBJ), material splitting, simplification, floor, sensors, etc.
 
+## Metadata Flow
+
+The CLI keeps two configuration paths explicit:
+
+- `ConversionMetadata` owns scene-wide conversion settings.
+- `JointData` owns grouped MJCF-only joints and per-joint dynamics, actuators, and velocity sensors.
+
+`conversion/pipeline.py` resolves those inputs once into `ConversionContext`. Body construction and MJCF assembly then consume the resolved context instead of re-reading files or applying precedence independently. Legacy default and actuator metadata remain adapters at the CLI seam; see the [Metadata Reference](./METADATA_REFERENCE.md) for precedence rules.
+
 ## Layered Dependencies
 
 ```

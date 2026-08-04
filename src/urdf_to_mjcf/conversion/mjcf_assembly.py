@@ -10,7 +10,7 @@ from pathlib import Path
 
 from urdf_to_mjcf.core.geometry import ParsedJointParams
 from urdf_to_mjcf.core.materials import Material
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, JointMetadata
+from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, JointMetadata, dActuator
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,18 @@ ROBOT_CLASS = "robot"
 MimicConstraint = tuple[str, str, float, float]
 
 
-def mjcf_bool(value: bool) -> str:
-    return "true" if value else "false"
+def _actuator_attributes(metadata: dActuator) -> dict[str, str]:
+    """Serialize actuator metadata shared by defaults and concrete actuators."""
+    attributes = {name: str(value) for name in ("kp", "kv", "gear") if (value := getattr(metadata, name)) is not None}
+    for name in ("ctrllimited", "forcelimited"):
+        value = getattr(metadata, name)
+        if value is not None:
+            attributes[name] = "true" if value else "false"
+    for name in ("ctrlrange", "forcerange"):
+        value = getattr(metadata, name)
+        if value is not None and len(value) == 2:
+            attributes[name] = f"{value[0]} {value[1]}"
+    return attributes
 
 
 # ---------------------------------------------------------------------------
@@ -82,24 +92,7 @@ def add_default(
             c_actuator = class_metadata.actuator
             if c_actuator.actuator_type is None:
                 continue
-
-            actuator_attrib = {}
-            if c_actuator.ctrllimited is not None:
-                actuator_attrib["ctrllimited"] = mjcf_bool(c_actuator.ctrllimited)
-            if c_actuator.kp is not None:
-                actuator_attrib["kp"] = str(c_actuator.kp)
-            if c_actuator.kv is not None:
-                actuator_attrib["kv"] = str(c_actuator.kv)
-            if c_actuator.gear is not None:
-                actuator_attrib["gear"] = str(c_actuator.gear)
-            if c_actuator.ctrlrange is not None and len(c_actuator.ctrlrange) == 2:
-                actuator_attrib["ctrlrange"] = f"{c_actuator.ctrlrange[0]} {c_actuator.ctrlrange[1]}"
-            if c_actuator.forcelimited is not None:
-                actuator_attrib["forcelimited"] = mjcf_bool(c_actuator.forcelimited)
-            if c_actuator.forcerange is not None:
-                actuator_attrib["forcerange"] = f"{c_actuator.forcerange[0]} {c_actuator.forcerange[1]}"
-
-            ET.SubElement(sub_default, c_actuator.actuator_type, attrib=actuator_attrib)
+            ET.SubElement(sub_default, c_actuator.actuator_type, attrib=_actuator_attributes(c_actuator))
 
     # Visual geometry class
     if not collision_only:
@@ -330,46 +323,21 @@ def add_actuators(
 ) -> None:
     """Add ordered actuator elements to the MJCF root."""
     actuator_elem = ET.SubElement(root, "actuator")
-    actuator_order = list(actuator_metadata)
+    available_joints = {joint.name for joint in actuator_joints}
 
-    for actuator_joint in actuator_joints:
-        metadata = actuator_metadata.get(actuator_joint.name)
-        if metadata is None:
-            logger.info("Actuator %s not found in actuator_metadata", actuator_joint.name)
+    for joint_name, metadata in actuator_metadata.items():
+        if joint_name not in available_joints:
+            logger.info("Joint %s not found in converted joints", joint_name)
             continue
 
-        attrib: dict[str, str] = {"joint": actuator_joint.name}
+        attrib = {"joint": joint_name, **_actuator_attributes(metadata)}
         actuator_type = metadata.actuator_type or "motor"
-        logger.info("Joint %s assigned to class: %s", actuator_joint.name, actuator_type)
 
         if metadata.joint_class is not None:
             attrib["class"] = str(metadata.joint_class)
-            logger.info("Joint %s assigned to class: %s", actuator_joint.name, metadata.joint_class)
-        if metadata.ctrllimited is not None:
-            attrib["ctrllimited"] = mjcf_bool(metadata.ctrllimited)
-        if metadata.kp is not None:
-            attrib["kp"] = str(metadata.kp)
-        if metadata.kv is not None:
-            attrib["kv"] = str(metadata.kv)
-        if metadata.ctrlrange is not None:
-            attrib["ctrlrange"] = f"{metadata.ctrlrange[0]} {metadata.ctrlrange[1]}"
-        if metadata.forcelimited is not None:
-            attrib["forcelimited"] = mjcf_bool(metadata.forcelimited)
-        if metadata.forcerange is not None:
-            attrib["forcerange"] = f"{metadata.forcerange[0]} {metadata.forcerange[1]}"
-        if metadata.gear is not None:
-            attrib["gear"] = str(metadata.gear)
 
-        logger.info("Creating actuator %s with class: %s", actuator_joint.name, actuator_type)
-        ET.SubElement(actuator_elem, actuator_type, attrib={"name": actuator_joint.name, **attrib})
-
-    actuator_children = [child for child in list(actuator_elem) if child.attrib["joint"] in actuator_metadata]
-    actuator_children.sort(key=lambda elem: actuator_order.index(elem.attrib["joint"]))
-
-    for child in actuator_children:
-        actuator_elem.remove(child)
-    for child in actuator_children:
-        actuator_elem.append(child)
+        logger.info("Creating %s actuator for joint %s", actuator_type, joint_name)
+        ET.SubElement(actuator_elem, actuator_type, attrib={"name": joint_name, **attrib})
 
 
 def add_joint_sensors(

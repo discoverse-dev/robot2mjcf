@@ -21,7 +21,7 @@ from urdf_to_mjcf.conversion.output import (
     save_initial_mjcf_and_apply_postprocess,
 )
 from urdf_to_mjcf.conversion.pipeline import assemble_robot_scene, build_conversion_context
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, DefaultJointMetadata, JointData
+from urdf_to_mjcf.core.model import ActuatorMetadata, DefaultJointMetadata, JointData
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,19 @@ T = TypeVar("T")
 # ---------------------------------------------------------------------------
 
 
+def _load_json_file(path: str, *, label: str, parser: Callable[[dict], T]) -> T:
+    """Load and parse one CLI JSON input with consistent error reporting."""
+    try:
+        with open(path, "r") as file:
+            value = parser(json.load(file))
+    except Exception as exc:
+        logger.warning("Failed to load %s from %s: %s", label, path, exc)
+        traceback.print_exc()
+        raise SystemExit(1) from exc
+    logger.info("Loaded %s from %s", label, path)
+    return value
+
+
 def _load_metadata_files(
     metadata_files: Sequence[str] | None,
     *,
@@ -40,21 +53,17 @@ def _load_metadata_files(
     parser: Callable[[dict], T],
 ) -> dict[str, T] | None:
     """Load keyed metadata from one or more JSON files."""
-    loaded: dict[str, T] = {}
     if not metadata_files:
         return None
 
+    loaded: dict[str, T] = {}
     for metadata_file in metadata_files:
-        try:
-            with open(metadata_file, "r") as f:
-                file_metadata = json.load(f)
-            for key, value in file_metadata.items():
-                loaded[key] = parser(value)
-            logger.info("Loaded %s metadata from %s", label, metadata_file)
-        except Exception as exc:
-            logger.warning("Failed to load %s metadata from %s: %s", label, metadata_file, exc)
-            traceback.print_exc()
-            raise SystemExit(1) from exc
+        file_metadata = _load_json_file(
+            metadata_file,
+            label=f"{label} metadata",
+            parser=lambda data: {key: parser(value) for key, value in data.items()},
+        )
+        loaded.update(file_metadata)
 
     return loaded or None
 
@@ -85,16 +94,9 @@ def load_joint_data_files(joint_data_files: Sequence[str] | None) -> JointData |
     extra_joints = []
     joints = {}
     for joint_data_file in joint_data_files:
-        try:
-            with open(joint_data_file, "r") as f:
-                joint_data = JointData.from_dict(json.load(f))
-            extra_joints.extend(joint_data.extra_joints)
-            joints.update(joint_data.joints)
-            logger.info("Loaded joint data from %s", joint_data_file)
-        except Exception as exc:
-            logger.warning("Failed to load joint data from %s: %s", joint_data_file, exc)
-            traceback.print_exc()
-            raise SystemExit(1) from exc
+        joint_data = _load_json_file(joint_data_file, label="joint data", parser=JointData.from_dict)
+        extra_joints.extend(joint_data.extra_joints)
+        joints.update(joint_data.joints)
     return JointData(extra_joints=extra_joints, joints=joints)
 
 
@@ -103,20 +105,6 @@ def normalize_appendix_files(appendix_files: Sequence[str] | None) -> list[Path]
     if not appendix_files:
         return None
     return [Path(appendix_file) for appendix_file in appendix_files]
-
-
-def apply_metadata_overrides(
-    metadata: ConversionMetadata,
-    *,
-    freejoint: bool | None,
-    add_floor: bool | None,
-) -> ConversionMetadata:
-    """Apply CLI-level conversion metadata overrides."""
-    if freejoint is not None:
-        metadata.freejoint = freejoint
-    if add_floor is not None:
-        metadata.add_floor = add_floor
-    return metadata
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +155,11 @@ def convert_urdf_to_mjcf(
     )
     if inputs.output_warning is not None:
         print(f"\033[33m{inputs.output_warning}\033[0m")
-    metadata = apply_metadata_overrides(inputs.metadata, freejoint=freejoint, add_floor=add_floor)
+    metadata = inputs.metadata
+    if freejoint is not None:
+        metadata.freejoint = freejoint
+    if add_floor is not None:
+        metadata.add_floor = add_floor
     context = build_conversion_context(
         inputs.robot,
         metadata=metadata,
