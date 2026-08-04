@@ -1,0 +1,75 @@
+{
+  "joints": {
+    "joint1": {
+      "damping": 20,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 500,
+        "kv": 5,
+        "ctrlrange": [-3.1, 3.1],
+        "forcerange": [-150, 150]
+      }
+    },
+    "joint2": {
+      "damping": 20,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 500,
+        "kv": 5,
+        "ctrlrange": [-2.268, 2.268],
+        "forcerange": [-150, 150]
+      }
+    },
+    "joint3": {
+      "damping": 20,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 500,
+        "kv": 5,
+        "ctrlrange": [-2.355, 2.355],
+        "forcerange": [-150, 150]
+      }
+    },
+    "joint4": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 350,
+        "kv": 2,
+        "ctrlrange": [-3.1, 3.1],
+        "forcerange": [-100, 100]
+      }
+    },
+    "joint5": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 350,
+        "kv": 2,
+        "ctrlrange": [-2.233, 2.233],
+        "forcerange": [-100, 100]
+      }
+    },
+    "joint6": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 350,
+        "kv": 2,
+        "ctrlrange": [-6.28, 6.28],
+        "forcerange": [-100, 100]
+      }
+    },
+    "gripper_joint1": {
+      "armature": 0.005,
+      "damping": 0.5,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 100,
+        "kv": 0.5,
+        "ctrlrange": [0, 0.82],
+        "forcerange": [-5, 5]
+      }
+    }
+  }
+}

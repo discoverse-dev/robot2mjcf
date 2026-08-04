@@ -1,11 +1,9 @@
 # 元数据参考
 
-转换器支持四类 JSON 输入：
+转换器只有两类 JSON 配置 interface：
 
 - 通过 `--metadata` 传入 `metadata.json`，配置场景与转换行为。
-- 通过 `--joint-data` 传入 `joint-data.json`，统一配置逐关节数据。
-- 通过 `--default-metadata` 传入 `default.json`，配置旧版 MJCF class 默认值。
-- 通过 `--actuator-metadata` 传入 `actuator.json`，配置旧版逐关节执行器。
+- 通过 `--joint-data` 传入 `joint_data.json`，配置全部关节级行为。
 
 完整数据模型定义在 `src/urdf_to_mjcf/core/model.py` 中。
 
@@ -46,7 +44,7 @@
 
 ## 统一关节数据
 
-`--joint-data` 是配置 MJCF-only 关节、逐关节动力学、执行器和速度传感器的推荐入口。
+`--joint-data` 是配置 MJCF-only 关节、逐关节动力学、执行器和速度传感器的唯一入口。
 
 ```json
 {
@@ -107,44 +105,16 @@
 
 只有 `actuator_type` 非空的执行器记录才会生成执行器。
 
-## 旧版默认元数据
-
-`--default-metadata` 将 MJCF class 名称映射到关节和执行器默认值：
-
-```json
-{
-  "class_name": {
-    "joint": {"damping": 0.1, "armature": 0.01},
-    "actuator": {"actuator_type": "motor", "gear": 1.0}
-  }
-}
-```
-
-## 旧版执行器元数据
-
-`--actuator-metadata` 将关节名映射到执行器记录：
-
-```json
-{
-  "joint_name": {
-    "joint_class": "class_name",
-    "actuator_type": "position",
-    "ctrllimited": true,
-    "ctrlrange": [-1.0, 1.0],
-    "kp": 100.0
-  }
-}
-```
-
-字段：`joint_class`, `actuator_type`, `ctrllimited`, `kp`, `kv`, `gear`, `ctrlrange`, `forcelimited`, `forcerange`。
-
-## 合并与优先级规则
+## 默认行为与合并规则
 
 - 多个 joint-data 文件按顺序读取：额外关节分组会追加；后续 `joints` 中的同名条目会完整替换之前的记录。
-- 提供 joint data 后，不再应用旧版 default class 元数据；逐关节动力学会直接写入对应关节。
-- 同时提供 `--actuator-metadata` 时，它优先于从 joint data 推导出的执行器。
-- 多个 default 或 actuator metadata 文件按顺序读取，后续同名条目覆盖之前的条目。
+- 未提供 `--joint-data` 时，转换器会为 URDF 中的每个可动关节生成默认 `motor` 执行器。
+- 一旦提供 joint data（包括空文档），默认 motor 即被禁用；只生成显式配置的执行器。
+- 逐关节动力学会直接写入同名的可动 URDF 或 MJCF-only 关节；未知、固定、重复或冲突的关节名无法通过校验。
+- 未知 JSON 字段无法通过校验；每个关节或执行器范围必须恰好包含两个数值。
 - `metadata.json` 是单个文档；显式的自由关节和地面命令行参数会覆盖其中的值。
+
+仓库示例使用 `examples/*/metadata/joint_data.json` 作为完整关节配置。
 
 示例：
 

@@ -52,7 +52,7 @@ The CLI keeps two configuration paths explicit:
 - `ConversionMetadata` owns scene-wide conversion settings.
 - `JointData` owns grouped MJCF-only joints and per-joint dynamics, actuators, and velocity sensors.
 
-`conversion/pipeline.py` resolves those inputs once into `ConversionContext`. Body construction and MJCF assembly then consume the resolved context instead of re-reading files or applying precedence independently. Legacy default and actuator metadata remain adapters at the CLI seam; see the [Metadata Reference](./METADATA_REFERENCE.md) for precedence rules.
+`JointData` is the only joint-configuration interface at the CLI seam. `conversion/pipeline.py` resolves it once into `ConversionContext`; body construction and MJCF assembly consume that same object instead of maintaining parallel joint/default/actuator maps. When joint data is omitted, the resolver creates default motor records for movable URDF joints. See the [Metadata Reference](./METADATA_REFERENCE.md) for the exact behavior.
 
 ## Layered Dependencies
 

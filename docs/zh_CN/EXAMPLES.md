@@ -14,8 +14,7 @@ cd examples/agilex-piper
 urdf-to-mjcf piper.urdf \
   -o output_mjcf/piper.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 
 # 查看生成的模型
@@ -37,8 +36,7 @@ cd examples/realman-rm65
 urdf-to-mjcf rm65b_eg24c2_description.urdf \
   -o output_mjcf/rm65.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 
 # 查看生成的模型

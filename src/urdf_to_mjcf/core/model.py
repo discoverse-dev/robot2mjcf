@@ -19,6 +19,17 @@ AXIS_VALUES: dict[str, tuple[float, float, float]] = {
 }
 
 
+class _StrictModel(BaseModel):
+    """Reject unknown configuration fields on both Pydantic 1 and 2."""
+
+    if hasattr(BaseModel, "model_validate"):
+        model_config = {"extra": "forbid"}
+    else:
+
+        class Config:
+            extra = "forbid"
+
+
 class CollisionParams(BaseModel):
     condim: int = 3
     contype: int = 0
@@ -29,57 +40,34 @@ class CollisionParams(BaseModel):
     friction: list[float] = [1.0, 0.01, 0.01]
 
 
-class dJoint(BaseModel):
-    stiffness: float | None = None
-    actuatorfrcrange: list[float] | None = None
-    margin: float | None = None
-    armature: float | None = None
-    damping: float | None = None
-    frictionloss: float | None = None
+class ActuatorConfig(_StrictModel):
+    """MuJoCo actuator settings nested under one joint record."""
 
-
-class dActuator(BaseModel):
     actuator_type: str | None = None
     ctrllimited: bool | None = None
     kp: float | None = None
     kv: float | None = None
     gear: float | None = None
-    ctrlrange: list[float] | None = None
+    ctrlrange: tuple[float, float] | None = None
     forcelimited: bool | None = None
-    forcerange: list[float] | None = None
+    forcerange: tuple[float, float] | None = None
 
 
-class JointSensors(BaseModel):
+class JointSensors(_StrictModel):
     jointvel: bool = False
 
 
-class DefaultJointMetadata(BaseModel):
-    joint: dJoint
-    actuator: dActuator
+class JointMetadata(_StrictModel):
+    """Dynamics, actuator, and sensor settings for one named joint."""
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "DefaultJointMetadata":
-        """Create DefaultJointMetadata from a plain dictionary."""
-        return cls(**data)
-
-
-class JointMetadata(dJoint):
-    actuator: dActuator | None = None
+    stiffness: float | None = None
+    actuatorfrcrange: tuple[float, float] | None = None
+    margin: float | None = None
+    armature: float | None = None
+    damping: float | None = None
+    frictionloss: float | None = None
+    actuator: ActuatorConfig | None = None
     sensors: JointSensors | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "JointMetadata":
-        """Create per-joint MJCF metadata from a plain dictionary."""
-        return cls(**data)
-
-
-class ActuatorMetadata(dActuator):
-    joint_class: str | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ActuatorMetadata":
-        """Create JointParam from a plain dictionary."""
-        return cls(**data)
 
 
 class SiteMetadata(BaseModel):
@@ -132,29 +120,24 @@ class ExplicitFloorContacts(BaseModel):
     class_name: str = "collision"
 
 
-class ExtraJoint(BaseModel):
+class ExtraJoint(_StrictModel):
     name: str
     type: Literal["slide", "hinge"]
     axis: AxisName
-    range: list[float] | None = None
+    range: tuple[float, float] | None = None
 
     def axis_values(self) -> tuple[float, float, float]:
         return AXIS_VALUES[self.axis]
 
 
-class ExtraJointGroup(BaseModel):
+class ExtraJointGroup(_StrictModel):
     body: str
     joints: list[ExtraJoint]
 
 
-class JointData(BaseModel):
+class JointData(_StrictModel):
     extra_joints: list[ExtraJointGroup] = []
     joints: dict[str, JointMetadata] = {}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "JointData":
-        """Create joint data from a plain dictionary."""
-        return cls(**data)
 
 
 class WeldConstraint(BaseModel):

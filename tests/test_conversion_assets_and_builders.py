@@ -24,11 +24,8 @@ from urdf_to_mjcf.core.materials import Material
 from urdf_to_mjcf.core.model import (
     CollisionParams,
     ConversionMetadata,
-    DefaultJointMetadata,
     JointMetadata,
     WeldConstraint,
-    dActuator,
-    dJoint,
 )
 
 
@@ -291,7 +288,6 @@ def test_build_robot_body_tree_uses_unique_mesh_assets_for_same_basename(tmp_pat
         "base",
         link_map=link_map,
         parent_map=parent_map,
-        actuator_metadata={},
         collision_only=False,
         materials={},
         mesh_assets=mesh_assets,
@@ -338,11 +334,10 @@ def test_build_robot_body_tree_writes_per_joint_metadata(tmp_path) -> None:
         ]
     }
 
-    body, actuator_joints = build_robot_body_tree(
+    body, movable_joints = build_robot_body_tree(
         "base",
         link_map=link_map,
         parent_map=parent_map,
-        actuator_metadata={},
         collision_only=False,
         materials={},
         mesh_assets={},
@@ -354,7 +349,7 @@ def test_build_robot_body_tree_writes_per_joint_metadata(tmp_path) -> None:
                 stiffness=0.05,
                 damping=0.5,
                 frictionloss=0.5,
-                actuatorfrcrange=[-10.0, 10.0],
+                actuatorfrcrange=(-10.0, 10.0),
             )
         },
     )
@@ -368,7 +363,7 @@ def test_build_robot_body_tree_writes_per_joint_metadata(tmp_path) -> None:
     assert joint.attrib["damping"] == "0.5"
     assert joint.attrib["frictionloss"] == "0.5"
     assert joint.attrib["actuatorfrcrange"] == "-10.0 10.0"
-    assert [joint.name for joint in actuator_joints] == ["arm_joint"]
+    assert [joint.name for joint in movable_joints] == ["arm_joint"]
 
 
 def test_add_compiler_replaces_existing_element() -> None:
@@ -384,48 +379,19 @@ def test_add_compiler_replaces_existing_element() -> None:
     assert compiler.attrib["balanceinertia"] == "true"
 
 
-def test_add_default_builds_joint_actuator_and_collision_defaults() -> None:
+def test_add_default_builds_visual_and_collision_defaults() -> None:
     root = ET.fromstring("<mujoco><default /></mujoco>")
     metadata = ConversionMetadata(
         collision_params=CollisionParams(contype=7, conaffinity=9),
         maxhullvert=32,
     )
-    default_metadata = {
-        "hinge": DefaultJointMetadata(
-            joint=dJoint(
-                stiffness=1.5,
-                actuatorfrcrange=[-1.0, 1.0],
-                margin=0.02,
-                armature=0.3,
-                damping=0.4,
-                frictionloss=0.1,
-            ),
-            actuator=dActuator(
-                actuator_type="position",
-                kp=30.0,
-                kv=4.0,
-                gear=2.0,
-                ctrlrange=[-0.5, 0.5],
-                forcerange=[-2.0, 2.0],
-            ),
-        )
-    }
+    add_default(root, metadata)
 
-    add_default(root, metadata, default_metadata)
-
-    joint = root.find(".//default[@class='hinge']/joint")
-    actuator = root.find(".//default[@class='hinge']/position")
     visual_geom = root.find(".//default[@class='visual']/geom")
     collision_geom = root.find(".//default[@class='collision']/geom")
     mesh = root.find("./default/mesh")
 
     assert root[0].tag == "default"
-    assert joint is not None
-    assert joint.attrib["stiffness"] == "1.5"
-    assert joint.attrib["actuatorfrcrange"] == "-1.0 1.0"
-    assert actuator is not None
-    assert actuator.attrib["ctrlrange"] == "-0.5 0.5"
-    assert actuator.attrib["forcerange"] == "-2.0 2.0"
     assert visual_geom is not None
     assert visual_geom.attrib["group"] == "2"
     assert collision_geom is not None

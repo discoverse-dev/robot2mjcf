@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,9 +33,8 @@ from urdf_to_mjcf.conversion.mjcf_assembly import (
 )
 from urdf_to_mjcf.core.geometry import ParsedJointParams
 from urdf_to_mjcf.core.model import (
-    ActuatorMetadata,
+    ActuatorConfig,
     ConversionMetadata,
-    DefaultJointMetadata,
     ExtraJointGroup,
     JointData,
     JointMetadata,
@@ -57,34 +57,43 @@ class ConversionContext:
     link_map: dict[str, ET.Element]
     parent_map: dict[str, list[tuple[str, ET.Element]]]
     root_link_name: str
-    actuator_metadata: dict[str, ActuatorMetadata]
-    joint_metadata: dict[str, JointMetadata]
-    extra_joints: list[ExtraJointGroup]
+    joint_data: JointData
     mimic_constraints: list[tuple[str, str, float, float]]
     metadata: ConversionMetadata
 
 
-def create_empty_actuator_metadata(robot_elem: ET.Element) -> dict[str, ActuatorMetadata]:
-    """Create placeholder metadata when actuator metadata is omitted."""
-    actuator_meta: dict[str, ActuatorMetadata] = {}
+def resolve_joint_data(robot_elem: ET.Element, joint_data: JointData | None) -> JointData:
+    """Resolve explicit joint data or create default motors for movable URDF joints."""
+    movable_joint_names: list[str] = []
     for joint in robot_elem.findall("joint"):
         name = joint.attrib.get("name")
-        if name:
-            actuator_meta[name] = ActuatorMetadata(actuator_type="motor")
-    return actuator_meta
-
-
-def create_actuator_metadata_from_joint_metadata(
-    joint_metadata: Mapping[str, JointMetadata],
-) -> dict[str, ActuatorMetadata]:
-    """Extract explicit actuators from per-joint metadata."""
-    actuator_metadata: dict[str, ActuatorMetadata] = {}
-    for name, metadata in joint_metadata.items():
-        actuator = metadata.actuator
-        if actuator is None or actuator.actuator_type is None:
+        if name is None or joint.attrib.get("type") not in {"revolute", "continuous", "prismatic"}:
             continue
-        actuator_metadata[name] = ActuatorMetadata(**dict(actuator))
-    return actuator_metadata
+        movable_joint_names.append(name)
+
+    if joint_data is not None:
+        extra_joint_names = [joint.name for group in joint_data.extra_joints for joint in group.joints]
+        duplicate_extra_joints = sorted(name for name, count in Counter(extra_joint_names).items() if count > 1)
+        if duplicate_extra_joints:
+            raise ValueError(f"Duplicate MJCF-only joint names: {duplicate_extra_joints}")
+
+        colliding_joint_names = sorted(set(movable_joint_names) & set(extra_joint_names))
+        if colliding_joint_names:
+            raise ValueError(f"MJCF-only joints conflict with URDF joints: {colliding_joint_names}")
+
+        link_names = {link.attrib["name"] for link in robot_elem.findall("link") if "name" in link.attrib}
+        unknown_bodies = sorted({group.body for group in joint_data.extra_joints} - link_names)
+        if unknown_bodies:
+            raise ValueError(f"Extra-joint bodies not found in URDF: {unknown_bodies}")
+
+        configurable_joints = set(movable_joint_names) | set(extra_joint_names)
+        unknown_joints = sorted(set(joint_data.joints) - configurable_joints)
+        if unknown_joints:
+            raise ValueError(f"Joint data references unknown or fixed joints: {unknown_joints}")
+        return joint_data
+
+    joints = {name: JointMetadata(actuator=ActuatorConfig(actuator_type="motor")) for name in movable_joint_names}
+    return JointData(joints=joints)
 
 
 def resolve_root_link_name(link_map: Mapping[str, ET.Element], child_joints: Mapping[str, ET.Element]) -> str:
@@ -99,26 +108,16 @@ def build_conversion_context(
     robot: ET.Element,
     *,
     metadata: ConversionMetadata,
-    default_metadata: Mapping[str, DefaultJointMetadata] | None,
-    actuator_metadata: dict[str, ActuatorMetadata] | None,
     collision_only: bool,
     joint_data: JointData | None = None,
 ) -> ConversionContext:
     """Build the shared conversion context used by convert_urdf_to_mjcf."""
-    resolved_joint_data = joint_data or JointData()
-    resolved_joint_metadata = resolved_joint_data.joints
-    if actuator_metadata is not None:
-        resolved_actuator_metadata = actuator_metadata
-    elif joint_data is not None:
-        resolved_actuator_metadata = create_actuator_metadata_from_joint_metadata(resolved_joint_metadata)
-    else:
-        logger.warning("Missing joint metadata, falling back to single empty 'motor' class.")
-        resolved_actuator_metadata = create_empty_actuator_metadata(robot)
+    resolved_joint_data = resolve_joint_data(robot, joint_data)
 
     mjcf_root = ET.Element("mujoco", attrib={"model": robot.attrib.get("name", "converted_robot")})
     add_compiler(mjcf_root)
     add_visual(mjcf_root)
-    add_default(mjcf_root, metadata, None if joint_data is not None else default_metadata, collision_only)
+    add_default(mjcf_root, metadata, collision_only=collision_only)
     worldbody = ET.SubElement(mjcf_root, "worldbody")
 
     link_map, parent_map, child_joints = build_joint_maps(robot)
@@ -140,9 +139,7 @@ def build_conversion_context(
         link_map=link_map,
         parent_map=parent_map,
         root_link_name=root_link_name,
-        actuator_metadata=resolved_actuator_metadata,
-        joint_metadata=resolved_joint_metadata,
-        extra_joints=resolved_joint_data.extra_joints,
+        joint_data=resolved_joint_data,
         mimic_constraints=mimic_constraints,
         metadata=metadata,
     )
@@ -158,13 +155,13 @@ class SceneAssemblyResult:
     """Artifacts produced by robot scene assembly."""
 
     robot_body: ET.Element
-    actuator_joints: list[ParsedJointParams]
+    movable_joints: list[ParsedJointParams]
     mesh_file_paths: dict[str, Path]
 
 
 def add_extra_joints(
     robot_body: ET.Element,
-    actuator_joints: list[ParsedJointParams],
+    movable_joints: list[ParsedJointParams],
     extra_joints: list[ExtraJointGroup],
     joint_metadata: Mapping[str, JointMetadata] | None = None,
 ) -> None:
@@ -194,7 +191,7 @@ def add_extra_joints(
             body.insert(insert_at, ET.Element("joint", attrib=attrib))
             insert_indices[group.body] = insert_at + 1
             touched_bodies[group.body] = body
-            actuator_joints.append(ParsedJointParams(name=joint.name, type=joint.type, lower=lower, upper=upper))
+            movable_joints.append(ParsedJointParams(name=joint.name, type=joint.type, lower=lower, upper=upper))
 
     for body_name, body in touched_bodies.items():
         if body.find("inertial") is None:
@@ -229,20 +226,19 @@ def assemble_robot_scene(
     target_mesh_dir.mkdir(parents=True, exist_ok=True)
     workspace_search_paths = resolve_workspace_search_paths(urdf_path)
 
-    robot_body, actuator_joints = build_robot_body_tree(
+    robot_body, movable_joints = build_robot_body_tree(
         context.root_link_name,
         link_map=context.link_map,
         parent_map=context.parent_map,
-        actuator_metadata=context.actuator_metadata,
         collision_only=collision_only,
         materials=materials,
         mesh_assets=mesh_assets,
         workspace_search_paths=workspace_search_paths,
         urdf_dir=urdf_dir,
-        joint_metadata=context.joint_metadata,
+        joint_metadata=context.joint_data.joints,
     )
     robot_body.attrib["childclass"] = ROBOT_CLASS
-    add_extra_joints(robot_body, actuator_joints, context.extra_joints, context.joint_metadata)
+    add_extra_joints(robot_body, movable_joints, context.joint_data.extra_joints, context.joint_data.joints)
     context.worldbody.append(robot_body)
 
     obj_materials = collect_single_obj_materials(
@@ -251,8 +247,8 @@ def assemble_robot_scene(
         workspace_search_paths=workspace_search_paths,
     )
     add_assets(context.mjcf_root, materials, obj_materials)
-    add_actuators(context.mjcf_root, actuator_joints, context.actuator_metadata)
-    add_joint_sensors(context.mjcf_root, context.joint_metadata, actuator_joints)
+    add_actuators(context.mjcf_root, movable_joints, context.joint_data.joints)
+    add_joint_sensors(context.mjcf_root, context.joint_data.joints, movable_joints)
     add_mimic_equality_constraints(context.mjcf_root, context.mimic_constraints)
 
     mesh_copy_result = copy_mesh_assets(
@@ -266,6 +262,6 @@ def assemble_robot_scene(
 
     return SceneAssemblyResult(
         robot_body=robot_body,
-        actuator_joints=actuator_joints,
+        movable_joints=movable_joints,
         mesh_file_paths=mesh_copy_result.mesh_file_paths,
     )

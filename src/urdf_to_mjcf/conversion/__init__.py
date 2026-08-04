@@ -34,7 +34,7 @@ from urdf_to_mjcf.conversion.pipeline import (
     SceneAssemblyResult,
     assemble_robot_scene,
     build_conversion_context,
-    create_empty_actuator_metadata,
+    resolve_joint_data,
     resolve_root_link_name,
 )
 
@@ -73,6 +73,6 @@ __all__ = [
     "SceneAssemblyResult",
     "assemble_robot_scene",
     "build_conversion_context",
-    "create_empty_actuator_metadata",
     "resolve_root_link_name",
+    "resolve_joint_data",
 ]

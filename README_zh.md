@@ -52,8 +52,6 @@ urdf-to-mjcf <urdf_path> [options]
 - `-m, --metadata`: 高级转换元数据 JSON（地面、相机、碰撞处理等）
 - `--freejoint, --no-freejoint`: 覆盖是否为根 body 添加 MuJoCo 自由关节
 - `--add-floor, --no-add-floor`: 覆盖是否生成默认地面
-- `-dm, --default-metadata`: 默认元数据JSON文件，可指定多个文件，后面的文件会覆盖前面的设置
-- `-am, --actuator-metadata`: 执行器元数据JSON文件，可指定多个文件，后面的文件会覆盖前面的设置
 - `-jd, --joint-data`: 统一关节数据 JSON，可配置分组的 MJCF-only 关节、逐关节动力学、执行器和关节速度传感器；多个文件按顺序合并
 - `-a, --appendix`: 附加XML文件，可指定多个文件，按顺序应用
 - `--collision-only`: 仅使用碰撞几何体而不显示视觉外观
@@ -68,12 +66,10 @@ urdf-to-mjcf <urdf_path> [options]
 
 #### 元数据文件说明
 - **metadata**: 主要转换配置文件，包含高度偏移、角度单位、地面、碰撞和场景设置
-- **joint-data**: 推荐的逐关节配置，将 MJCF-only 关节分组与动力学、执行器和关节速度传感器配置统一在一个结构中
-- **default-metadata**: 默认关节参数配置，定义关节的默认属性
-- **actuator-metadata**: 执行器配置，定义每个关节的驱动器类型和参数
+- **joint-data**: 唯一的关节配置格式，将 MJCF-only 关节分组与逐关节动力学、执行器和关节速度传感器统一在一个结构中
 - **appendix**: 附加的XML内容，会被直接添加到生成的MJCF文件中
 
-完整的 joint-data 结构、合并规则和新旧配置优先级请参阅[元数据字段参考](./docs/zh_CN/METADATA_REFERENCE.md)。
+完整的 joint-data 结构、默认行为和合并规则请参阅[元数据字段参考](./docs/zh_CN/METADATA_REFERENCE.md)。
 
 ### 使用示例
 
@@ -83,8 +79,7 @@ cd examples/agilex-piper
 urdf-to-mjcf piper.urdf \
   -o mjcf/piper.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 # 查看生成的模型
 python -m mujoco.viewer --mjcf=mjcf/piper.xml
@@ -101,8 +96,7 @@ cd examples/realman-rm65
 urdf-to-mjcf rm65b_eg24c2_description.urdf \
   -o mjcf/rm65.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 # 查看生成的模型
 python -m mujoco.viewer --mjcf=mjcf/rm65.xml

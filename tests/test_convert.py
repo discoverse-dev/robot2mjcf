@@ -8,7 +8,7 @@ from typing import Any
 import mujoco
 import pytest
 
-from urdf_to_mjcf.cli.convert import convert_urdf_to_mjcf
+from urdf_to_mjcf.cli.convert import convert_urdf_to_mjcf, load_joint_data_files
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 
@@ -44,7 +44,6 @@ EXPECTED_SIGNATURES: dict[str, dict[str, Any]] = {
             "joint5",
             "joint6",
             "joint7",
-            "joint8",
         ],
         "equality_pairs": [("joint7", "joint8")],
         "xml_counts": {
@@ -52,7 +51,7 @@ EXPECTED_SIGNATURES: dict[str, dict[str, Any]] = {
             "geom": 38,
             "mesh": 34,
             "material": 26,
-            "actuator": 8,
+            "actuator": 7,
             "equality": 1,
         },
         "model_counts": {
@@ -98,11 +97,6 @@ EXPECTED_SIGNATURES: dict[str, dict[str, Any]] = {
         ],
         "actuator_names": [
             "gripper_joint1",
-            "gripper_joint2",
-            "gripper_joint3",
-            "gripper_joint4",
-            "gripper_joint5",
-            "gripper_joint6",
             "joint1",
             "joint2",
             "joint3",
@@ -122,7 +116,7 @@ EXPECTED_SIGNATURES: dict[str, dict[str, Any]] = {
             "geom": 36,
             "mesh": 32,
             "material": 11,
-            "actuator": 12,
+            "actuator": 7,
             "equality": 5,
         },
         "model_counts": {
@@ -195,6 +189,7 @@ def test_convert_piper_basic(tmp_dir: Path) -> None:
     robot_dir = EXAMPLES_DIR / "agilex-piper"
     urdf_path = robot_dir / "piper.urdf"
     metadata_path = robot_dir / "metadata" / "metadata.json"
+    joint_data_path = robot_dir / "metadata" / "joint_data.json"
     appendix_path = robot_dir / "metadata" / "appendix.xml"
 
     out_path = tmp_dir / "piper.xml"
@@ -203,6 +198,7 @@ def test_convert_piper_basic(tmp_dir: Path) -> None:
         urdf_path=urdf_path,
         mjcf_path=out_path,
         metadata_file=metadata_path,
+        joint_data=load_joint_data_files([str(joint_data_path)]),
         appendix_files=[appendix_path] if appendix_path.exists() else None,
         max_vertices=200000,
     )
@@ -219,6 +215,7 @@ def test_convert_rm65_with_metadata(tmp_dir: Path) -> None:
     robot_dir = EXAMPLES_DIR / "realman-rm65"
     urdf_path = robot_dir / "rm65b_eg24c2_description.urdf"
     metadata_path = robot_dir / "metadata" / "metadata.json"
+    joint_data_path = robot_dir / "metadata" / "joint_data.json"
     appendix_path = robot_dir / "metadata" / "appendix.xml"
 
     out_path = tmp_dir / "rm65.xml"
@@ -227,6 +224,7 @@ def test_convert_rm65_with_metadata(tmp_dir: Path) -> None:
         urdf_path=urdf_path,
         mjcf_path=out_path,
         metadata_file=metadata_path,
+        joint_data=load_joint_data_files([str(joint_data_path)]),
         appendix_files=[appendix_path] if appendix_path.exists() else None,
         max_vertices=200000,
     )

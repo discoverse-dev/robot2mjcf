@@ -52,7 +52,7 @@ CLI 明确区分两条配置路径：
 - `ConversionMetadata` 负责场景级转换设置。
 - `JointData` 负责分组的 MJCF-only 关节，以及逐关节动力学、执行器和速度传感器。
 
-`conversion/pipeline.py` 只解析一次这些输入并写入 `ConversionContext`。Body 构建和 MJCF 组装随后只消费已解析的上下文，不再各自读取文件或重复处理优先级。旧版 default 和 actuator metadata 作为 CLI seam 上的 adapter 保留；优先级规则见[元数据参考](./METADATA_REFERENCE.md)。
+`JointData` 是 CLI seam 上唯一的关节配置 interface。`conversion/pipeline.py` 只解析一次并写入 `ConversionContext`；Body 构建和 MJCF 组装消费同一对象，不再维护并行的 joint/default/actuator 映射。未提供 joint data 时，resolver 会为 URDF 中的可动关节生成默认 motor 记录；精确行为见[元数据参考](./METADATA_REFERENCE.md)。
 
 ## 分层依赖
 

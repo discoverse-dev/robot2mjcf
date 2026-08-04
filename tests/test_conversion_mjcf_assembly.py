@@ -6,39 +6,39 @@ import xml.etree.ElementTree as ET
 
 from urdf_to_mjcf.conversion.mjcf_assembly import add_actuators, add_joint_sensors, add_mimic_equality_constraints
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata, JointMetadata, JointSensors
+from urdf_to_mjcf.core.model import ActuatorConfig, JointMetadata, JointSensors
 
 
 def test_add_actuators_uses_metadata_and_preserves_metadata_order() -> None:
     root = ET.fromstring("<mujoco />")
-    actuator_joints = [
+    movable_joints = [
         ParsedJointParams(name="joint_b", type="hinge"),
         ParsedJointParams(name="joint_missing", type="hinge"),
         ParsedJointParams(name="joint_a", type="hinge"),
     ]
-    actuator_metadata = {
-        "joint_a": ActuatorMetadata(
-            actuator_type="position",
-            joint_class="arm",
-            ctrllimited=True,
-            kp=50.0,
-            kv=5.0,
-            ctrlrange=[-1.0, 1.0],
-            forcelimited=True,
-            forcerange=[-2.0, 2.0],
-            gear=3.0,
+    joint_metadata = {
+        "joint_a": JointMetadata(
+            actuator=ActuatorConfig(
+                actuator_type="position",
+                ctrllimited=True,
+                kp=50.0,
+                kv=5.0,
+                ctrlrange=(-1.0, 1.0),
+                forcelimited=True,
+                forcerange=(-2.0, 2.0),
+                gear=3.0,
+            ),
         ),
-        "joint_b": ActuatorMetadata(actuator_type="motor"),
+        "joint_b": JointMetadata(actuator=ActuatorConfig(actuator_type="motor")),
     }
 
-    add_actuators(root, actuator_joints, actuator_metadata)
+    add_actuators(root, movable_joints, joint_metadata)
 
     actuator = root.find("actuator")
     children = list(actuator) if actuator is not None else []
 
     assert [child.attrib["joint"] for child in children] == ["joint_a", "joint_b"]
     assert children[0].tag == "position"
-    assert children[0].attrib["class"] == "arm"
     assert children[0].attrib["ctrllimited"] == "true"
     assert children[0].attrib["kp"] == "50.0"
     assert children[0].attrib["kv"] == "5.0"

@@ -1,12 +1,14 @@
 """Tests for Pydantic models."""
 
+import pytest
+from pydantic import ValidationError
+
 from urdf_to_mjcf.core.model import (
-    ActuatorMetadata,
+    ActuatorConfig,
     CollisionGeometry,
     CollisionParams,
     CollisionType,
     ConversionMetadata,
-    DefaultJointMetadata,
     ExtraJoint,
     ExtraJointGroup,
     JointData,
@@ -20,40 +22,13 @@ def test_collision_params_defaults() -> None:
     assert cp.friction == [1.0, 0.01, 0.01]
 
 
-def test_default_joint_metadata_from_dict() -> None:
-    data = {
-        "joint": {"damping": 0.1, "armature": 0.01},
-        "actuator": {"actuator_type": "motor", "kp": 100.0},
-    }
-    meta = DefaultJointMetadata.from_dict(data)
-    assert meta.joint.damping == 0.1
-    assert meta.actuator.kp == 100.0
-
-
-def test_joint_metadata_from_dict_accepts_empty_actuator() -> None:
-    data = {
-        "damping": 0.5,
-        "armature": 0.001,
-        "actuator": {},
-        "sensors": {"jointvel": True},
-    }
-    meta = JointMetadata.from_dict(data)
-    assert meta.damping == 0.5
-    assert meta.armature == 0.001
-    assert meta.actuator is not None
-    assert meta.actuator.actuator_type is None
-    assert meta.sensors is not None
-    assert meta.sensors.jointvel is True
-
-
-def test_actuator_metadata_from_dict() -> None:
-    data = {
-        "actuator_type": "position",
-        "ctrllimited": True,
-        "gear": 1.0,
-        "forcelimited": True,
-    }
-    meta = ActuatorMetadata.from_dict(data)
+def test_actuator_config_parses_supported_fields() -> None:
+    meta = ActuatorConfig(
+        actuator_type="position",
+        ctrllimited=True,
+        gear=1.0,
+        forcelimited=True,
+    )
     assert meta.actuator_type == "position"
     assert meta.ctrllimited is True
     assert meta.gear == 1.0
@@ -88,7 +63,7 @@ def test_joint_data_json_roundtrip() -> None:
         extra_joints=[
             ExtraJointGroup(
                 body="base_link",
-                joints=[ExtraJoint(name="base_x", type="slide", axis="x", range=[-10, 10])],
+                joints=[ExtraJoint(name="base_x", type="slide", axis="x", range=(-10, 10))],
             )
         ],
         joints={
@@ -105,6 +80,14 @@ def test_joint_data_json_roundtrip() -> None:
     assert loaded.extra_joints[0].joints[0].name == "base_x"
     assert loaded.extra_joints[0].joints[0].axis_values() == (1.0, 0.0, 0.0)
     assert loaded.joints["base_x"].armature == 0.001
+
+
+def test_joint_data_rejects_unknown_and_invalid_range_fields() -> None:
+    with pytest.raises(ValidationError):
+        JointData(joints={"joint": {"joint_class": "legacy"}})  # type: ignore[dict-item]
+
+    with pytest.raises(ValidationError):
+        JointMetadata(actuatorfrcrange=[-1.0])  # type: ignore[arg-type]
 
 
 def test_collision_geometry_enum() -> None:

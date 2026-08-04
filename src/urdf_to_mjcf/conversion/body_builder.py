@@ -14,7 +14,7 @@ import numpy as np
 from urdf_to_mjcf.conversion.assets import resolve_mesh_source_path
 from urdf_to_mjcf.core.geometry import GeomElement, ParsedJointParams, rpy_to_quat
 from urdf_to_mjcf.core.materials import get_obj_material_info, make_mjcf_material_name
-from urdf_to_mjcf.core.model import ActuatorMetadata, JointMetadata
+from urdf_to_mjcf.core.model import JointMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def apply_joint_metadata(attrib: dict[str, str], metadata: JointMetadata | None)
         value = getattr(metadata, name)
         if value is None:
             continue
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple)):
             attrib[name] = " ".join(str(item) for item in value)
         else:
             attrib[name] = str(value)
@@ -39,7 +39,6 @@ def build_robot_body_tree(
     *,
     link_map: Mapping[str, ET.Element],
     parent_map: Mapping[str, list[tuple[str, ET.Element]]],
-    actuator_metadata: Mapping[str, ActuatorMetadata],
     collision_only: bool,
     materials: Mapping[str, object],
     mesh_assets: dict[str, str],
@@ -49,7 +48,7 @@ def build_robot_body_tree(
 ) -> tuple[ET.Element, list[ParsedJointParams]]:
     """Build the MJCF body hierarchy for a URDF robot."""
 
-    actuator_joints: list[ParsedJointParams] = []
+    movable_joints: list[ParsedJointParams] = []
 
     mesh_key_by_name: dict[str, str] = {}
     mesh_name_by_key: dict[str, str] = {}
@@ -204,11 +203,6 @@ def build_robot_body_tree(
                 else:
                     joint_attrib["type"] = "slide"
 
-                if joint_name in actuator_metadata and actuator_metadata[joint_name].joint_class is not None:
-                    joint_class_value = actuator_metadata[joint_name].joint_class
-                    joint_attrib["class"] = str(joint_class_value)
-                    logger.info("Joint %s assigned to class: %s", joint_name, joint_class_value)
-
                 limit = joint.find("limit")
                 lower_num: float | None
                 upper_num: float | None
@@ -231,7 +225,7 @@ def build_robot_body_tree(
                 apply_joint_metadata(joint_attrib, metadata)
                 ET.SubElement(body, "joint", attrib=joint_attrib)
 
-                actuator_joints.append(
+                movable_joints.append(
                     ParsedJointParams(
                         name=joint_name,
                         type=joint_attrib["type"],
@@ -377,4 +371,4 @@ def build_robot_body_tree(
 
         return body
 
-    return build_body(root_link_name), actuator_joints
+    return build_body(root_link_name), movable_joints

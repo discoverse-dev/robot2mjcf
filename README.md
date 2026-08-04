@@ -52,8 +52,6 @@ urdf-to-mjcf <urdf_path> [options]
 - `-m, --metadata`: Advanced conversion metadata JSON (floor, cameras, collision processing, etc.)
 - `--freejoint, --no-freejoint`: Override whether the root body receives a MuJoCo free joint
 - `--add-floor, --no-add-floor`: Override whether the default floor is generated
-- `-dm, --default-metadata`: Default metadata JSON files, multiple files can be specified, later files override earlier settings
-- `-am, --actuator-metadata`: Actuator metadata JSON files, multiple files can be specified, later files override earlier settings
 - `-jd, --joint-data`: Unified joint-data JSON files for grouped MJCF-only joints, per-joint dynamics, actuators, and joint-velocity sensors; files are merged in order
 - `-a, --appendix`: Appendix XML files, multiple files can be specified and applied in order
 - `--collision-only`: Use collision geometry only without visual appearance for visual representation
@@ -68,12 +66,10 @@ urdf-to-mjcf <urdf_path> [options]
 
 #### Metadata Files Description
 - **metadata**: Main conversion configuration file, containing height offset, angle units, floor, collision, and scene settings
-- **joint-data**: Preferred per-joint configuration, combining grouped MJCF-only joints with dynamics, actuator, and joint-velocity sensor settings
-- **default-metadata**: Default joint parameter configuration, defines default properties for joints
-- **actuator-metadata**: Actuator configuration, defines actuator types and parameters for each joint
+- **joint-data**: The single joint configuration format, combining grouped MJCF-only joints with per-joint dynamics, actuator, and joint-velocity sensor settings
 - **appendix**: Additional XML content that will be directly added to the generated MJCF file
 
-See the [Metadata Reference](./docs/en/METADATA_REFERENCE.md) for the joint-data schema, merge rules, and precedence between the unified and legacy inputs.
+See the [Metadata Reference](./docs/en/METADATA_REFERENCE.md) for the joint-data schema, defaults, and merge rules.
 
 ### Usage Examples
 
@@ -83,8 +79,7 @@ cd examples/agilex-piper
 urdf-to-mjcf piper.urdf \
   -o mjcf/piper.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 # View the generated model
 python -m mujoco.viewer --mjcf=mjcf/piper.xml
@@ -101,8 +96,7 @@ cd examples/realman-rm65
 urdf-to-mjcf rm65b_eg24c2_description.urdf \
   -o mjcf/rm65.xml \
   -m metadata/metadata.json \
-  -am metadata/actuator.json \
-  -dm metadata/default.json \
+  -jd metadata/joint_data.json \
   -a metadata/appendix.xml
 # View the generated model
 python -m mujoco.viewer --mjcf=mjcf/rm65.xml

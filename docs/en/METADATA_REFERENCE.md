@@ -1,11 +1,9 @@
 # Metadata Reference
 
-The converter accepts four JSON inputs:
+The converter has two JSON configuration interfaces:
 
 - `metadata.json` through `--metadata` for scene and conversion settings.
-- `joint-data.json` through `--joint-data` for unified per-joint configuration.
-- `default.json` through `--default-metadata` for legacy MJCF classes.
-- `actuator.json` through `--actuator-metadata` for legacy per-joint actuators.
+- `joint_data.json` through `--joint-data` for all joint-specific configuration.
 
 The exact schemas live in `src/urdf_to_mjcf/core/model.py`.
 
@@ -46,7 +44,7 @@ Sensor records:
 
 ## Unified Joint Data
 
-`--joint-data` is the preferred input for MJCF-only joints and joint-specific dynamics, actuators, and velocity sensors.
+`--joint-data` is the only input for MJCF-only joints and joint-specific dynamics, actuators, and velocity sensors.
 
 ```json
 {
@@ -107,44 +105,16 @@ The `joints` object maps a URDF or MJCF-only joint name to:
 
 Only actuator records with a non-null `actuator_type` generate an actuator.
 
-## Legacy Default Metadata
-
-`--default-metadata` maps MJCF class names to joint and actuator defaults:
-
-```json
-{
-  "class_name": {
-    "joint": {"damping": 0.1, "armature": 0.01},
-    "actuator": {"actuator_type": "motor", "gear": 1.0}
-  }
-}
-```
-
-## Legacy Actuator Metadata
-
-`--actuator-metadata` maps joint names to actuator records:
-
-```json
-{
-  "joint_name": {
-    "joint_class": "class_name",
-    "actuator_type": "position",
-    "ctrllimited": true,
-    "ctrlrange": [-1.0, 1.0],
-    "kp": 100.0
-  }
-}
-```
-
-Fields: `joint_class`, `actuator_type`, `ctrllimited`, `kp`, `kv`, `gear`, `ctrlrange`, `forcelimited`, `forcerange`.
-
-## Merge and Precedence Rules
+## Defaults and Merge Rules
 
 - Multiple joint-data files are read in order. Extra-joint groups are appended; a later `joints` entry replaces the complete earlier record with the same name.
-- Supplying joint data disables legacy default-class metadata. Per-joint dynamics from joint data are applied directly.
-- If `--actuator-metadata` is also supplied, it takes precedence over actuators derived from joint data.
-- Multiple default- or actuator-metadata files are read in order, with later entries replacing earlier entries by key.
+- Without `--joint-data`, the converter generates a default `motor` actuator for every movable URDF joint.
+- Supplying joint data, including an empty document, disables those generated motors. Only explicitly configured actuators are emitted.
+- Per-joint dynamics are written directly onto the matching movable URDF or MJCF-only joint. Unknown, fixed, duplicate, or colliding joint names fail validation.
+- Unknown JSON fields fail validation, and every joint or actuator range must contain exactly two numbers.
 - `metadata.json` is a single document; the explicit freejoint and floor CLI flags override it.
+
+The repository examples use `examples/*/metadata/joint_data.json` as complete configurations.
 
 Example:
 

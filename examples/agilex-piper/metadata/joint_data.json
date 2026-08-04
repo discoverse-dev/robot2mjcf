@@ -1,0 +1,74 @@
+{
+  "joints": {
+    "joint1": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 300,
+        "kv": 5,
+        "ctrlrange": [-2.618, 2.618],
+        "forcerange": [-100, 100]
+      }
+    },
+    "joint2": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 300,
+        "kv": 5,
+        "ctrlrange": [0, 3.14],
+        "forcerange": [-100, 100]
+      }
+    },
+    "joint3": {
+      "damping": 10,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 300,
+        "kv": 5,
+        "ctrlrange": [-2.697, 0],
+        "forcerange": [-100, 100]
+      }
+    },
+    "joint4": {
+      "damping": 5,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 150,
+        "kv": 2,
+        "ctrlrange": [-1.832, 1.832],
+        "forcerange": [-50, 50]
+      }
+    },
+    "joint5": {
+      "damping": 5,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 150,
+        "kv": 2,
+        "ctrlrange": [-1.22, 1.22],
+        "forcerange": [-50, 50]
+      }
+    },
+    "joint6": {
+      "damping": 5,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 150,
+        "kv": 2,
+        "ctrlrange": [-3.14, 3.14],
+        "forcerange": [-50, 50]
+      }
+    },
+    "joint7": {
+      "damping": 1,
+      "actuator": {
+        "actuator_type": "position",
+        "kp": 300,
+        "kv": 2,
+        "ctrlrange": [0, 0.04],
+        "forcerange": [-100, 100]
+      }
+    }
+  }
+}

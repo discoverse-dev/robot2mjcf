@@ -303,7 +303,9 @@ def test_add_sensors_creates_sites_and_sensor_entries(tmp_path) -> None:
     add_sensors(mjcf_path, "base", metadata)
 
     root = ET.parse(mjcf_path).getroot()
-    sensor_names = {elem.attrib["name"] for elem in root.find("sensor") or []}
+    sensors = root.find("sensor")
+    assert sensors is not None
+    sensor_names = {elem.attrib["name"] for elem in sensors}
 
     assert "base_site_pos" in sensor_names
     assert "arm_acc" in sensor_names

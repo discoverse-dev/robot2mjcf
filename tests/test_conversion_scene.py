@@ -6,7 +6,14 @@ import xml.etree.ElementTree as ET
 
 from urdf_to_mjcf.conversion.pipeline import ConversionContext, add_extra_joints, assemble_robot_scene
 from urdf_to_mjcf.core.geometry import ParsedJointParams
-from urdf_to_mjcf.core.model import ActuatorMetadata, ConversionMetadata, ExtraJoint, ExtraJointGroup
+from urdf_to_mjcf.core.model import (
+    ActuatorConfig,
+    ConversionMetadata,
+    ExtraJoint,
+    ExtraJointGroup,
+    JointData,
+    JointMetadata,
+)
 
 
 def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_path, monkeypatch) -> None:
@@ -19,14 +26,14 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
         link_map={"base": ET.Element("link")},
         parent_map={},
         root_link_name="base",
-        actuator_metadata={"joint1": ActuatorMetadata(actuator_type="motor")},
-        joint_metadata={},
-        extra_joints=[],
+        joint_data=JointData(
+            joints={"joint1": JointMetadata(actuator=ActuatorConfig(actuator_type="motor"))},
+        ),
         mimic_constraints=[("joint0", "joint1", 1.0, 0.0)],
         metadata=ConversionMetadata(),
     )
     robot_body = ET.Element("body", attrib={"name": "base"})
-    actuator_joints = [ParsedJointParams(name="joint1", type="hinge")]
+    movable_joints = [ParsedJointParams(name="joint1", type="hinge")]
     material_marker = object()
 
     calls: list[tuple[str, object]] = []
@@ -37,7 +44,7 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
     )
     monkeypatch.setattr(
         "urdf_to_mjcf.conversion.pipeline.build_robot_body_tree",
-        lambda *args, **kwargs: (robot_body, actuator_joints),
+        lambda *args, **kwargs: (robot_body, movable_joints),
     )
     monkeypatch.setattr(
         "urdf_to_mjcf.conversion.pipeline.collect_single_obj_materials",
@@ -81,7 +88,7 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
     )
 
     assert result.robot_body is robot_body
-    assert result.actuator_joints == actuator_joints
+    assert result.movable_joints == movable_joints
     assert result.mesh_file_paths == {"mesh_a": tmp_path / "meshes" / "mesh_a.obj"}
     assert robot_body.attrib["childclass"] == "robot"
     assert context.worldbody[0] is robot_body
@@ -95,19 +102,19 @@ def test_assemble_robot_scene_orchestrates_body_assets_and_mesh_pipeline(tmp_pat
 
 def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
     robot_body = ET.fromstring('<body name="base"><body name="arm" /></body>')
-    actuator_joints: list[ParsedJointParams] = []
+    movable_joints: list[ParsedJointParams] = []
     extra_joints = [
         ExtraJointGroup(
             body="base",
             joints=[
-                ExtraJoint(name="base_x", type="slide", axis="x", range=[-1, 1]),
-                ExtraJoint(name="base_y", type="slide", axis="y", range=[-2, 2]),
+                ExtraJoint(name="base_x", type="slide", axis="x", range=(-1, 1)),
+                ExtraJoint(name="base_y", type="slide", axis="y", range=(-2, 2)),
                 ExtraJoint(name="base_yaw", type="hinge", axis="z"),
             ],
         )
     ]
 
-    add_extra_joints(robot_body, actuator_joints, extra_joints)
+    add_extra_joints(robot_body, movable_joints, extra_joints)
 
     joints = robot_body.findall("joint")
     assert [joint.attrib["name"] for joint in joints] == ["base_x", "base_y", "base_yaw"]
@@ -124,4 +131,4 @@ def test_add_extra_joints_injects_joints_and_minimal_inertial() -> None:
         "mass": "0.001",
         "diaginertia": "1e-06 1e-06 1e-06",
     }
-    assert [joint.name for joint in actuator_joints] == ["base_x", "base_y", "base_yaw"]
+    assert [joint.name for joint in movable_joints] == ["base_x", "base_y", "base_yaw"]
